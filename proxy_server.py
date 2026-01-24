@@ -5,17 +5,13 @@ import xml.etree.ElementTree as ET
 import urllib3
 from datetime import datetime
 
-# Disable SSL warnings for the JSON API
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 app = Flask(__name__)
 CORS(app)
 
-# --- CONFIG ---
-# 1. Primary API (JSON Wrapper) - Stable & Fast
 JSON_BASE = "https://ridebt.org/index.php?option=com_ajax&module=bt_map&format=json"
 
-# 2. Secondary API (Raw XML) - Used ONLY for Station Board
 XML_BASE = "http://216.252.195.248/webservices/bt4u_webservice.asmx"
 
 def fetch_json(method_name, extra_params=None):
@@ -55,16 +51,15 @@ def fetch_xml_departures(stop_code):
                 route = get_val(node, "RouteShortName")
                 dest = get_val(node, "PatternName")
                 
-                # GRAB BOTH TIMES
-                adj_time = get_val(node, "AdjustedDepartureTime")   # Live estimate
-                sched_time = get_val(node, "ScheduledDepartureTime") # Printed schedule
+                adj_time = get_val(node, "AdjustedDepartureTime")
+                sched_time = get_val(node, "ScheduledDepartureTime")
                 
                 if route and adj_time:
                     departures.append({
                         "route": route,
                         "dest": dest,
-                        "time": adj_time,       # Keep this for your "Next Run" sorting
-                        "scheduled": sched_time # Send this for "Late/Early" math
+                        "time": adj_time,
+                        "scheduled": sched_time
                     })
         return departures
 
@@ -72,17 +67,13 @@ def fetch_xml_departures(stop_code):
         print(f"❌ XML Parsing Error: {e}")
         return []
 
-# --- ENDPOINTS ---
-
 @app.route('/buses')
 def get_buses():
-    # Use Stable JSON
     data = fetch_json("getBuses")
     return jsonify(data if data else {"data": []})
 
 @app.route('/routes')
 def get_routes_list():
-    # Use Stable JSON
     data = fetch_json("getRoutes")
     routes = {}
     if data and 'data' in data:
@@ -92,7 +83,6 @@ def get_routes_list():
 
 @app.route('/alerts')
 def get_alerts():
-    # Use Stable JSON (Fixes the 500 error you saw!)
     data = fetch_json("GetActiveAlerts")
     if data and 'data' in data:
         return jsonify(data['data'])
@@ -100,7 +90,6 @@ def get_alerts():
 
 @app.route('/nearest')
 def get_nearest():
-    # Use Stable JSON
     lat = request.args.get('lat')
     lon = request.args.get('lon')
     data = fetch_json("GetNearestStops", {'latitude': lat, 'longitude': lon})
@@ -108,7 +97,6 @@ def get_nearest():
 
 @app.route('/stops')
 def get_stops():
-    # Use Stable JSON
     route = request.args.get('route')
     today = datetime.now().strftime("%Y-%m-%d")
     data = fetch_json("GetScheduledStopInfo", {'routeShortName': route, 'serviceDate': today})
@@ -126,7 +114,6 @@ def get_stops():
 
 @app.route('/route_shape')
 def get_shape():
-    # Use Stable JSON (getPatternPoints works great)
     pattern = request.args.get('pattern')
     data = fetch_json("getPatternPoints", {'patternName': pattern})
     
@@ -149,10 +136,10 @@ def get_shape():
 
 @app.route('/departures')
 def get_departures():
-    # HYBRID SWITCH: Use Raw XML for this ONE feature
     code = request.args.get('code')
     return jsonify(fetch_xml_departures(code))
 
 if __name__ == '__main__':
     print("🚀 Proxy V19 (Hybrid Engine) Running...")
+
     app.run(port=5000)
