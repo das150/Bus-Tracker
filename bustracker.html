@@ -1,0 +1,1437 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>BT Tracker</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root { --maroon: #630031; --orange: #cf4420; --bg: #f4f4f9; --slate: #2c3e50; --red-alert: #d32f2f; }
+        body { margin: 0; font-family: 'Inter', sans-serif; overflow: hidden; background: var(--bg); }
+        #map { height: 100vh; width: 100%; }
+
+        /* SIDEBAR */
+        #sidebar {
+            position: absolute; top: 15px; left: 15px; width: 350px;
+            background: rgba(255,255,255,0.98); border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2); z-index: 1000;
+            max-height: 90vh; display: flex; flex-direction: column; overflow: hidden;
+        }
+       
+        #alert-box {
+            background: var(--orange); color: white; font-size: 0.85rem;
+            padding: 8px 15px; display: none; cursor: pointer;
+            border-bottom: 1px solid rgba(0,0,0,0.1); font-weight: 600;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+
+        .stop-node {
+            background-color: #ffffff;
+            border: 2px solid #2c3e50;
+            border-radius: 50%;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+            width: 14px !important;
+            height: 14px !important;
+            margin-left: -7px !important; 
+            margin-top: -7px !important;  
+            cursor: pointer;
+            transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275), border-color 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 9px;
+            line-height: 1;
+        }
+
+        .stop-node.timecheck-node {
+            border: 2px solid #630031; 
+            background-color: #2c3e50; 
+            transform: scale(1.3);
+            z-index: 500;
+            color: white;
+        }
+
+        .header { padding: 15px 20px; border-bottom: 1px solid #eee; background: white; }
+        h1 { margin: 0; font-size: 1.2rem; color: var(--maroon); }
+        .status-txt { font-size: 0.8rem; color: #666; margin-top: 4px; }
+        #list-container { overflow-y: auto; padding: 10px; background: #f8f9fa; flex-grow: 1; }
+
+        /* BUS LIST */
+        .route-group { margin-bottom: 8px; background: white; border-radius: 8px; border: 1px solid #ddd; overflow: hidden; }
+        .route-header { padding: 12px; cursor: pointer; display: flex; align-items: center; transition: background 0.2s; }
+        .route-header:hover { background: #f0f0f0; }
+        .r-badge { background: var(--maroon); color: white; padding: 4px 8px; border-radius: 6px; font-weight: bold; font-size: 0.9rem; width: 45px; text-align: center; margin-right: 12px; }
+        .r-title { font-weight: 700; color: #333; flex-grow: 1; }
+        .r-count { font-size: 0.8rem; color: #888; background: #eee; padding: 2px 8px; border-radius: 10px; }
+        .bus-list { display: none; border-top: 1px solid #eee; }
+        .route-group.open .bus-list { display: block; }
+        .bus-item { padding: 10px 15px 10px 50px; cursor: pointer; border-bottom: 1px solid #f5f5f5; font-size: 0.9rem; color: #555; position: relative; }
+        .bus-item:hover { background: #fffbf0; color: var(--maroon); }
+        .bus-item.selected { background: #ffebeb; border-left: 4px solid var(--maroon); font-weight: bold; }
+        .bus-ptrn { font-size: 0.8rem; color: #999; display: block; margin-top: 2px; }
+
+        /* BADGES */
+        .tc-badge { font-size: 0.7em; background: #2c3e50; color: #fff; padding: 1px 4px; border-radius: 3px; margin-left: 5px; font-weight: bold; }
+        .electric-badge { position: absolute; bottom: 6px; right: 9px; z-index: 9999 !important; background: #ffcc00; color: #333; border-radius: 50%; width: 14px; height: 14px; font-size: 10px; display: flex; justify-content: center; align-items: center; border: 1px solid white; z-index: 5; }
+        .top-badge { position: absolute; top: -14px; left: 50%; transform: translateX(-50%); color: white; font-size: 9px; padding: 2px 5px; border-radius: 4px; font-weight: bold; white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
+        .bdg-full { background: var(--red-alert); animation: pulse 1s infinite; }
+        .bdg-busy { background: #f57c00; }
+        .bdg-hold { background: #2c3e50; border: 1px solid white; }
+
+        @keyframes pulse { 0% { transform: translateX(-50%) scale(1); } 50% { transform: translateX(-50%) scale(1.1); } 100% { transform: translateX(-50%) scale(1); } }
+
+        /* MAP ICONS */
+        .bus-rotate-wrap { width: 60px; height: 60px; display: flex; justify-content: center; align-items: center; transition: all 1s linear; }
+        .bus-body-base { background: var(--maroon); border: 2px solid white; color: white; font-weight: bold; font-size: 10px; display: flex; justify-content: center; align-items: center; box-shadow: 0 2px 5px rgba(0,0,0,0.3); position: relative; }
+        .bus-pointer { position: absolute; top: -8px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-bottom: 8px solid var(--maroon); }
+        .std-bus { width: 24px; height: 36px; border-radius: 4px; }
+        .acc-container { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+        .acc-front { width: 24px; height: 28px; border-radius: 4px 4px 0 0; border-bottom: none; }
+        .acc-joint { width: 18px; height: 6px; background: #555; border-radius: 2px; border: 1px solid #333; }
+        .acc-rear { width: 24px; height: 20px; border-radius: 0 0 4px 4px; border-top: none; background: var(--maroon); border: 2px solid white; }
+
+        .stop-marker { background: white; border: 2px solid #555; width: 12px; height: 12px; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.3); cursor: pointer; transition: all 0.2s; }
+        .stop-marker:hover { background: var(--maroon); border-color: white; transform: scale(1.4); }
+
+        /* POPUP */
+        .pop-h { background: var(--maroon); color: white; padding: 10px; font-weight: bold; }
+        .pop-b { padding: 12px; min-width: 220px; }
+        .pop-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 0.9rem; align-items: center; }
+        .stat-chip { background: #f0f0f0; padding: 2px 8px; border-radius: 12px; font-weight: 600; font-size: 0.85rem; }
+        .tag { padding: 2px 6px; border-radius: 4px; font-size: 0.75rem; font-weight: bold; }
+        .tag.early { background: #e8f5e9; color: #2e7d32; }
+        .tag.late { background: #ffebee; color: #c62828; }
+        .tag.ontime { background: #e3f2fd; color: #1565c0; }
+        .tag.hold { background: #333; color: #fff; }
+        .tag.full { background: var(--red-alert); color: white; }
+        button.arr-btn { width: 100%; margin-top: 5px; padding: 8px; cursor: pointer; background: #eee; border: 1px solid #ccc; border-radius: 4px; font-weight: 600; }
+        button.arr-btn:hover { background: #ddd; }
+
+        .lr-badge {
+            font-size: 0.7em; background: #000; color: #ff5555; border: 1px solid red;
+            padding: 1px 4px; border-radius: 3px; margin-left: 5px; font-weight: 800; letter-spacing: 0.5px;
+        }
+        .tag.lastrun { background: #000; color: #ff5555; border: 1px solid red; }
+
+        .lr-border {
+            border: 3px solid #cf4420 !important;
+            box-shadow: 0 0 8px #8b0000;
+            z-index: 100 !important;
+        }
+
+        .leaflet-interactive {
+            transition: stroke-width 0.2s ease;
+        }
+
+        .stop-node:hover {
+            transform: scale(1.5);
+            border-color: var(--maroon);
+            background-color: #fff;
+            z-index: 1000 !important;
+        }
+
+        .stop-popup-btn {
+            width: 100%;
+            padding: 8px;
+            background: var(--slate);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 5px;
+        }
+        .stop-popup-btn:hover { background: #34495e; }
+
+        /* MODERN ETA CARD DESIGN */
+        .eta-box {
+            background: #ffffff;
+            border: 1px solid #e0e6ed;
+            border-radius: 12px;
+            padding: 15px;
+            margin-bottom: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            text-align: center;
+            transition: background 0.3s ease;
+        }
+
+        .eta-label {
+            font-size: 10px;
+            text-transform: uppercase;
+            color: #64748b;
+            letter-spacing: 1.2px;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+
+        .eta-timer {
+            font-size: 32px;
+            font-weight: 800;
+            color: #1e293b;
+            font-family: 'Inter', monospace;
+            line-height: 1;
+            margin: 8px 0;
+        }
+
+        .eta-sub {
+            font-size: 12px;
+            color: #475569;
+            font-weight: 500;
+            line-height: 1.4;
+        }
+
+        .tag.approaching {
+            background-color: #630031;
+            color: white;
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-weight: 800;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            animation: pulse 1s infinite;
+        }
+
+        .tc-popup-label {
+            display: inline-block;
+            background: #2c3e50;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 800;
+            margin-bottom: 8px;
+            letter-spacing: 0.5px;
+        }
+        /* Update these existing classes in your <style> block */
+.stop-node {
+    background-color: #ffffff;
+    border: 2px solid #2c3e50;
+    border-radius: 50%;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    width: 14px !important;  /* Increased slightly for the icon */
+    height: 14px !important; /* Increased slightly for the icon */
+    margin-left: -7px !important; 
+    margin-top: -7px !important;  
+    cursor: pointer;
+    transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275), border-color 0.2s;
+    
+    /* NEW: Center the clock symbol */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 9px;
+    line-height: 1;
+}
+
+.stop-node.timecheck-node {
+    border: 2px solid #630031; 
+    background-color: #2c3e50; 
+    transform: scale(1.3);
+    z-index: 500;
+    color: white; /* Color of the clock symbol */
+}
+    </style>
+</head>
+<body>
+
+<div id="sidebar">
+    <div id="alert-box" onclick="alert(this.title)">⚠️ Checking Alerts...</div>
+    <div class="header">
+        <h1>BT Bus Tracker</h1>
+        <div class="status-txt" id="sys-status">Connecting...</div>
+    </div>
+    <div id="list-container"></div>
+</div>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+let currentSelectedRoute = null; // Track which route's shape is displayed
+let allRoutesMode = {}; // Track per-stop whether to show all routes
+
+    const API = "http://127.0.0.1:5000";
+    const map = L.map('map', { zoomControl: false }).setView([37.2296, -80.4139], 14);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { attribution: 'This is an unofficial resource. Presented data may be inaccurate.' }).addTo(map);
+    map.attributionControl.setPrefix(false);
+    L.control.zoom({ position: 'bottomright' }).addTo(map);
+    
+    map.on('click', function(e) {
+        if (e.originalEvent.target.id === 'map') {
+            clearSelection();
+        }
+    });
+
+    const routeNames = {
+        "BMR": "Beamer Way",
+        "CAS": "Campus Shuttle",
+        "CRB": "Carpenter Boulevard",
+        "CRC": "Corporate Research Center",
+        "HDG": "Harding Avenue",
+        "HWA": "Hethwood A",
+        "HWB": "Hethwood B",
+        "HWC": "Hethwood Combined",
+        "HXP": "Hokie Express",
+        "NMG": "North Main Givens",
+        "NMP": "North Main Patrick Henry",
+        "PHD": "Patrick Henry Drive",
+        "PRG": "Progress Street",
+        "SMA": "South Main Airport",
+        "SMS": "South Main Southpark",
+        "TCR": "Toms Creek Road",
+        "TCP": "Toms Creek Progress",
+        "UCB": "University City Blvd",
+        "BLU": "Explorer Blue",
+        "GRN": "Explorer Green"
+    };
+
+    let busMarkers = {}, busTrails = {}, shapeLayer = L.layerGroup().addTo(map), stopLayer = L.layerGroup().addTo(map);
+    let activeRoutes = {}, openRoute = null, selectedBusId = null;
+
+    // --- UTILS ---
+    function isAccordion(id) { return (id.length === 4 && id.charAt(2) === '2'); }
+    function isElectric(id) { const n = parseInt(id); return (n >= 7000); }
+    function isLastRun(pattern) {
+        return (pattern && pattern.includes("LR"));
+    }
+   
+    function getScheduleStatus(adherence) {
+        if (adherence === null || adherence === undefined || adherence === "") {
+            return { text: "On Time", class: "ontime" };
+        }
+
+        const val = parseFloat(adherence);
+        if (isNaN(val)) return { text: "On Time", class: "ontime" };
+
+        if (val > 2) {
+            return { text: `${Math.round(val)}m Late`, class: "late" };
+        }
+        else if (val < -1) {
+            return { text: `${Math.abs(Math.round(val))}m Early`, class: "early" };
+        }
+        else {
+            return { text: "On Time", class: "ontime" };
+        }
+    }
+
+    function getSpeedContext(speedMph) {
+        if (speedMph == 0) return { text: "Waiting", color: "#d32f2f" };
+        if (speedMph < 5) return { text: "Slowing", color: "#d32f2f" };
+        if (speedMph < 15) return { text: "Light Traffic", color: "#f57c00" };
+        return { text: "No Traffic", color: "#2e7d32" };
+    }
+
+    // --- MAIN LOOP ---
+async function updateSystem() {
+    try {
+        const res = await fetch(`${API}/buses`);
+        const json = await res.json();
+        
+        // 1. Get Raw Vehicles
+        let vehicles = json.data || [];
+        const now = new Date();
+
+        // --- ✅ FIX: GHOST BUS FILTER ---
+        // Remove any bus that hasn't updated in > 10 minutes
+// --- ✅ FIX: CORRECT GHOST FILTER ---
+vehicles = vehicles.filter(bus => {
+    // 1. Get the timestamp from the correct location
+    // The API calls it 'version' inside the states array
+    const timestamp = bus.states && bus.states[0] ? bus.states[0].version : null;
+
+    // 2. Safety: If missing, keep the bus (don't delete valid data)
+    if (!timestamp) return true; 
+
+    // 3. Age Check (Timestamp is in milliseconds, so math is easy)
+    const ageMs = now.getTime() - timestamp;
+    const ageMinutes = ageMs / 60000;
+
+    // If data is older than 10 minutes, DELETE IT.
+    if (ageMinutes > 5) {
+        console.log(`👻 Ghost Bus Removed: ID ${bus.id} (Last seen ${Math.round(ageMinutes)}m ago)`);
+        return false; 
+    }
+    
+    return true; 
+});
+// ---------------------------------
+        // ---------------------------------
+
+        document.getElementById('sys-status').innerText = `System Live: ${vehicles.length} Active Buses`;
+        let newRouteData = {};
+
+        vehicles.forEach(bus => {
+            if(!bus.states || !bus.states[0]) return;
+            const state = bus.states[0];
+            const id = bus.id;
+            const route = bus.routeId;
+            const pattern = bus.patternName || "Loop";
+            const lat = parseFloat(state.latitude);
+            const lon = parseFloat(state.longitude);
+            const heading = parseInt(state.direction) || 0;
+            
+            const pax = parseInt(state.passengers) || 0;
+            const speedMps = parseInt(state.speed) || 0;
+            const speedMph = Math.round(speedMps * 2.23694);
+
+            const adherence = state.deviation || 0;
+            const isStopped = (state.isBusAtStop === "Y");
+            const percentCap = parseInt(bus.percentOfCapacity) || 0;
+            const isTimePoint = (state.isTimePoint === "Y");
+            const isLR = isLastRun(pattern);
+
+            if (!newRouteData[route]) newRouteData[route] = { count: 0, buses: [] };
+            newRouteData[route].count++;
+            newRouteData[route].buses.push({ id, pattern, pax, isStopped, speed: speedMph, percentCap, isTimePoint, isLR });
+
+            updateMarker(id, route, lat, lon, heading, pattern, pax, speedMph, adherence, isStopped, percentCap, isTimePoint, isLR);
+        });
+
+        // 2. CLEANUP (Removes markers for filtered/ghost buses)
+        Object.keys(busMarkers).forEach(existingId => {
+            const stillActive = vehicles.find(v => v.id === existingId);
+            
+            if (!stillActive) {
+                console.log(`Bus ${existingId} went offline/ghost. Removing...`);
+                
+                map.removeLayer(busMarkers[existingId]);
+                delete busMarkers[existingId];
+                
+                if (busTrails[existingId]) {
+                    map.removeLayer(busTrails[existingId]);
+                    delete busTrails[existingId];
+                }
+
+                if (selectedBusId === existingId) {
+                    shapeLayer.clearLayers();
+                    stopLayer.clearLayers();
+                    selectedBusId = null;
+                    currentSelectedRoute = null;
+                    document.getElementById('sys-status').innerText = "Bus went Out of Service";
+                }
+    } else {
+        // NEW: Check if bus changed routes
+        const newRoute = stillActive.routeId;
+        const marker = busMarkers[existingId];
+        
+        if (marker.currentRoute !== newRoute) {
+            console.log(`Bus ${existingId} switched from ${marker.currentRoute} to ${newRoute}`);
+            
+            // If this was the selected bus, refresh the route display
+            if (selectedBusId === existingId) {
+                const newPattern = stillActive.patternName || "Loop";
+                selectBus(existingId, newRoute, newPattern);
+            }
+        }
+    }
+});
+
+        renderSidebar(newRouteData);
+
+    } catch (e) { console.error(e); }
+
+    checkAlerts();
+}
+
+    function clearSelection() {
+        selectedBusId = null;
+        openRoute = null;
+        
+        shapeLayer.clearLayers();
+        stopLayer.clearLayers();
+        
+        document.querySelectorAll('.bus-item').forEach(el => el.classList.remove('selected'));
+        document.querySelectorAll('.route-group').forEach(el => el.classList.remove('open'));
+        
+        if (liveEtaTimer) clearInterval(liveEtaTimer);
+        
+        document.getElementById('sys-status').innerText = "Selection Cleared";
+    }
+
+    async function checkAlerts() {
+        try {
+            const res = await fetch(`${API}/alerts`);
+            const alerts = await res.json();
+            const alertBox = document.getElementById('alert-box');
+            if(alerts && alerts.length > 0) {
+                alertBox.style.display = 'block';
+                alertBox.innerText = `⚠️ ${alerts[0].title}: ${alerts[0].message}`;
+                alertBox.title = alerts.map(a => `${a.title}: ${a.message}`).join('\n\n');
+            } else {
+                alertBox.style.display = 'none';
+            }
+        } catch(e) {}
+    }
+
+    // --- VISUALS ---
+    function updateMarker(id, route, lat, lon, heading, pattern, pax, speed, adherence, isStopped, percentCap, isTimePoint, isLR) {
+        if (!busTrails[id]) busTrails[id] = L.polyline([], { color: '#630031', weight: 4, opacity: 0.25 }).addTo(map);
+        const trail = busTrails[id];
+        trail.addLatLng([lat, lon]);
+        if (trail.getLatLngs().length > 15) trail.getLatLngs().shift();
+
+        const jitterAmount = 0.00003;
+        const idNum = parseInt(id) || 0;
+        const jLat = lat + ( ((idNum % 3) - 1) * jitterAmount );
+        const jLon = lon + ( ((idNum % 2) - 0.5) * jitterAmount * 2 );
+
+        const generateIconHtml = (currentRoute) => {
+            const electricHtml = isElectric(id) ? `<div class="electric-badge">⚡</div>` : '';
+            let topBadgeHtml = '';
+            if (isTimePoint && isStopped) topBadgeHtml = `<div class="top-badge bdg-hold">HOLD</div>`;
+            else if (percentCap >= 90) topBadgeHtml = `<div class="top-badge bdg-full">FULL</div>`;
+            else if (percentCap >= 75) topBadgeHtml = `<div class="top-badge bdg-busy">BUSY</div>`;
+
+            const lrClass = isLR ? 'lr-border' : '';
+            let bodyHtml = isAccordion(id) ?
+                `<div class="acc-container"><div class="bus-pointer"></div><div class="bus-body-base acc-front ${lrClass}">${currentRoute}</div><div class="acc-joint"></div><div class="bus-body-base acc-rear ${lrClass}"></div></div>` :
+                `<div class="bus-body-base std-bus ${lrClass}"><div class="bus-pointer"></div>${currentRoute}</div>`;
+
+            return `<div class="bus-rotate-wrap" style="transform: rotate(${heading}deg)">${bodyHtml}${electricHtml}${topBadgeHtml}</div>`;
+        };
+
+        const status = getScheduleStatus(adherence);
+
+        if (busMarkers[id]) {
+            const m = busMarkers[id];
+           
+            m.data = { speed, percentCap, adherence };
+            m.heading = heading;
+            m.busId = id;        
+
+            const newIconHtml = generateIconHtml(route);
+            if (m.currentRoute !== route || m.prevTopBadge !== (isTimePoint && isStopped) || m.prevCap !== percentCap) {
+                 m.setIcon(L.divIcon({ className: 'bus-icon-container', html: newIconHtml, iconSize: [60, 60], iconAnchor: [30, 30] }));
+                 m.currentRoute = route;
+                 m.prevTopBadge = (isTimePoint && isStopped);
+                 m.prevCap = percentCap;
+            }
+            m.setLatLng([jLat, jLon]);
+            const wrapper = m.getElement().querySelector('.bus-rotate-wrap');
+            if (wrapper) wrapper.style.transform = `rotate(${heading}deg)`;
+           
+            if (id === selectedBusId) m.setZIndexOffset(1000); else m.setZIndexOffset(0);
+
+            m.setPopupContent(getPopup(id, route, pattern, pax, speed, status, isStopped, percentCap, isTimePoint, isLR));
+        } else {
+            const m = L.marker([jLat, jLon], {
+                icon: L.divIcon({ className: 'bus-icon-container', html: generateIconHtml(route), iconSize: [60, 60], iconAnchor: [30, 30] }),
+                riseOnHover: true
+            }).addTo(map);
+
+            m.on('mouseover', function() { this.setZIndexOffset(10000); });
+            m.on('mouseout', function() { if (this.busId !== selectedBusId) this.setZIndexOffset(0); });
+           
+            m.bindPopup(getPopup(id, route, pattern, pax, speed, status, isStopped, percentCap, isTimePoint, isLR));
+            m.on('click', () => selectBus(id, route, pattern));
+           
+            m.currentRoute = route;
+            m.prevTopBadge = (isTimePoint && isStopped);
+            m.data = { speed, percentCap, adherence };
+            m.heading = heading;
+            m.busId = id;
+            busMarkers[id] = m;
+        }
+    }
+
+    // --- PREDICTION ENGINE ---
+function predictNextDeparture(cachedSchedule, stopLat, stopLon, currentRouteId, stopCode, routeShape, allStops, currentStopSequence) {
+    const now = new Date();
+    
+    // --- KEEPING YOUR DIAGNOSTICS ---
+    console.groupCollapsed(`🔍 PREDICTING STOP #${stopCode} (${currentRouteId})`);
+    
+    if (!cachedSchedule || cachedSchedule.length === 0) {
+        console.warn("⚠️ Schedule Empty: Service likely ended for the day.");
+        console.groupEnd();
+        return { type: "end_of_service", scheduledTime: now, dest: "N/A" };
+    }
+
+    const firstScheduled = cachedSchedule[0];
+    const scheduledTime = firstScheduled.date;
+    console.log(`📅 API Anchor Time: ${scheduledTime.toLocaleTimeString()} (Dest: ${firstScheduled.dest})`);
+
+    const activeBuses = [];
+    const showAllRoutes = allRoutesMode[stopCode] || false;
+    
+    // --- KEEPING YOUR ROBUST FILTERING ---
+    Object.values(busMarkers).forEach(m => {
+        if (!showAllRoutes && m.currentRoute !== currentRouteId) return;
+
+        const busPos = { 
+            lat: m.getLatLng().lat, 
+            lon: m.getLatLng().lng, 
+            heading: m.heading || 0, 
+            id: m.busId, 
+            route: m.currentRoute,
+            data: m.data || {} 
+        };
+        const dist = getDistance(busPos.lat, busPos.lon, stopLat, stopLon);
+        const hasPassed = hasBusPassed(busPos, stopLat, stopLon);
+        
+        let busStopSequence = -1;
+        if (allStops && allStops.length > 0) {
+            let minDist = Infinity;
+            allStops.forEach((stop, idx) => {
+                const d = getDistance(busPos.lat, busPos.lon, stop.lat, stop.lon);
+                if (d < minDist && d < 150) {
+                    minDist = d;
+                    busStopSequence = idx;
+                }
+            });
+        }
+        
+        activeBuses.push({ ...busPos, distance: dist, stopSequence: busStopSequence, hasPassed: hasPassed });
+    });
+
+    let validBuses = activeBuses.filter(b => !b.hasPassed);
+
+    validBuses.sort((a, b) => {
+        if (a.stopSequence >= 0 && b.stopSequence >= 0 && a.stopSequence !== b.stopSequence) {
+            return a.stopSequence - b.stopSequence;
+        }
+        return a.distance - b.distance;
+    });
+
+    validBuses = validBuses.filter(bus => {
+        if (bus.distance < 30 && bus.hasPassed) return false;
+        return true;
+    });
+
+    let bestBus = null;
+    let bestMatch = null;
+    
+    // --- KEEPING YOUR MATCHING LOOP ---
+    for (const bus of validBuses) {
+        // Pass routeShape and activeBuses to the physics engine
+        const seconds = calculatePrecisionETA(bus, stopLat, stopLon, currentStopSequence, bus.stopSequence, routeShape, activeBuses);
+        
+        if (seconds === null || seconds < 0) continue;
+        
+        const loopEtaTime = new Date(now.getTime() + (seconds * 1000));
+
+        let closestScheduleMatch = null;
+        let minTimeDiff = Infinity;
+        
+        cachedSchedule.forEach((schedEntry) => {
+            if (showAllRoutes && schedEntry.route !== bus.route) return;
+            
+            const timeDiff = (loopEtaTime - schedEntry.date) / 60000;
+            const absDiff = Math.abs(timeDiff);
+            const dist = bus.distance;
+            
+            if (dist < 500 && absDiff > 15) return;
+            
+            if (absDiff < minTimeDiff) {
+                minTimeDiff = absDiff;
+                closestScheduleMatch = schedEntry;
+            }
+        });
+        
+        if (closestScheduleMatch && minTimeDiff < 30) {
+            // Your "Quality Check" logic
+            if (bestBus && bestMatch) {
+                const currentMatchQuality = minTimeDiff + (bus.distance / 1000); 
+                const prevMatchQuality = Math.abs((bestBus.etaTime - bestMatch.date) / 60000) + (bestBus.distance / 1000);
+                
+                if (currentMatchQuality >= prevMatchQuality) continue; 
+            }
+            
+            bestBus = { ...bus, seconds, etaTime: loopEtaTime };
+            bestMatch = closestScheduleMatch;
+        }
+    }
+
+    if (!bestBus || !bestMatch) {
+        const timeSinceScheduled = (now - scheduledTime) / 60000;
+        console.log(`⚠️ No Match. Time since: ${timeSinceScheduled.toFixed(1)} min`);
+        console.groupEnd();
+        
+        if (timeSinceScheduled > 2) {
+            return { type: "late_bus", scheduledTime, minutesLate: Math.round(timeSinceScheduled), dest: firstScheduled.dest };
+        }
+        return { type: "scheduled", scheduledTime, dest: firstScheduled.dest };
+    }
+
+// =========================================================
+    // ✅ NEW: 30-SECOND OFFSET (Non-Timechecks Only)
+    // =========================================================
+    if (!bestMatch.isTimecheck) {
+        console.log("⚡ Applying -20s offset to prediction");
+        // Subtract 30 seconds, but don't go below 0
+        bestBus.seconds = Math.max(0, bestBus.seconds - 20);
+    }
+    // =========================================================
+
+    const matchedScheduledTime = bestMatch.date;
+    const distToStop = bestBus.distance;
+    const routeInfo = showAllRoutes ? ` (${bestBus.route})` : '';
+
+    // --- KEEPING YOUR TIMECHECK CONSTRAINTS ---
+    let timecheckConstraint = bestMatch.prevTimecheckDeparture || null;
+    let etaTime = new Date(now.getTime() + (bestBus.seconds * 1000));
+    
+    if (timecheckConstraint && etaTime < timecheckConstraint) {
+        console.log(`🛡️ Timecheck Constraint Applied`);
+        etaTime = new Date(timecheckConstraint.getTime() + 60000);
+        bestBus.seconds = (etaTime - now) / 1000;
+    }
+    
+    let adherenceMinutes = (etaTime - matchedScheduledTime) / 60000;
+    
+    if (adherenceMinutes < -1.5) {
+        console.log(`🛡️ Early Clamp Applied`);
+        etaTime = new Date(matchedScheduledTime.getTime() - 30000); 
+        bestBus.seconds = (etaTime - now) / 1000;
+        adherenceMinutes = -0.5;
+    }
+
+    console.log(`📊 Final Calc: Adherence ${adherenceMinutes.toFixed(1)}m, Dist ${Math.round(distToStop)}m`);
+
+    // =========================================================================
+    // ✅ NEW: UPDATED RETURN TYPES FOR THE NEW DISPLAY
+    // =========================================================================
+
+    // 1. ARRIVED STATE
+    if (distToStop < 50 && bestBus.seconds < 30) {
+        console.log("👉 Result: ARRIVED/HOLDING");
+        console.groupEnd();
+
+        // Special handling for Timechecks
+        if (bestMatch.isTimecheck) {
+            const holdSeconds = (matchedScheduledTime - now) / 1000;
+            if (holdSeconds > 0) {
+                // **UPDATED RETURN TYPE**
+                return { 
+                    type: "timecheck_holding", 
+                    seconds: holdSeconds, 
+                    busId: bestBus.id, 
+                    scheduledTime: matchedScheduledTime, 
+                    dest: bestMatch.dest + routeInfo,
+                    route: bestBus.route 
+                };
+            } else if (holdSeconds > -45) {
+                // **UPDATED RETURN TYPE**
+                return { 
+                    type: "timecheck_departing", 
+                    busId: bestBus.id, 
+                    dest: bestMatch.dest + routeInfo, 
+                    scheduledTime: matchedScheduledTime,
+                    route: bestBus.route 
+                };
+            }
+        }
+        return { 
+            type: "arrived", 
+            busId: bestBus.id, 
+            dest: bestMatch.dest + routeInfo, 
+            scheduledTime: matchedScheduledTime,
+            route: bestBus.route 
+        };
+    }
+
+    // 2. EN ROUTE / APPROACHING
+    // We unify these so the Countdown Timer logic in updateDisplay handles the visuals
+    console.log("👉 Result: EN ROUTE/APPROACHING");
+    console.groupEnd();
+    
+    let status = "ontime", statusText = "ON TIME";
+    if (adherenceMinutes > 0.5) { status = "late"; statusText = `~${Math.round(adherenceMinutes)}m LATE`; }
+    else if (adherenceMinutes < -0.5) { status = "early"; statusText = `~${Math.abs(Math.round(adherenceMinutes))}m EARLY`; }
+
+    // If extremely close, force "approaching" type for safety, but data is same
+    const type = (bestBus.seconds < 60) ? "approaching" : "en_route";
+
+    return { 
+        type: type, 
+        seconds: bestBus.seconds, 
+        etaTime: etaTime, // Crucial for the countdown
+        busId: bestBus.id, 
+        dest: bestMatch.dest + routeInfo, 
+        status, 
+        statusText, 
+        scheduledTime: matchedScheduledTime,
+        route: bestBus.route 
+    };
+}
+    let liveEtaTimer = null;
+
+    async function selectBus(id, route, patternName) {
+        selectedBusId = id;
+        openRoute = route;
+        currentSelectedRoute = route;
+        if (liveEtaTimer) clearInterval(liveEtaTimer);
+
+        shapeLayer.clearLayers();
+        stopLayer.clearLayers();
+       
+        if (busMarkers[id]) {
+            map.closePopup();
+            busMarkers[id].setZIndexOffset(1000);
+            map.flyTo(busMarkers[id].getLatLng(), 16, { animate: true, duration: 0.5 });
+        }
+
+        document.getElementById('sys-status').innerText = `Loading Precision Route...`;
+
+        try {
+            const [shapeRes, _] = await Promise.all([
+                fetch(`${API}/route_shape?pattern=${encodeURIComponent(patternName)}`),
+                new Promise(resolve => setTimeout(resolve, 1600))
+            ]);
+            const json = await shapeRes.json();
+           
+            if (json.shape && json.shape.length > 0) {
+                L.polyline(json.shape, { color: '#630031', weight: 5, opacity: 0.8, lineJoin: 'round' }).addTo(shapeLayer);
+            }
+
+            if (json.stops && json.stops.length > 0) {
+                json.stops.forEach(s => {
+                    const isTC = (s.isTimePoint === "Y" || s.isTimePoint === true || s.isTimecheck === true || s.timepoint === true);
+        
+                    const nodeClass = isTC ? 'stop-node timecheck-node' : 'stop-node';
+                    
+                    const icon = L.divIcon({ 
+                        className: nodeClass, 
+                        iconSize: [14, 14],
+                        html: isTC ? '🕒' : '' 
+                    });
+
+                    const m = L.marker([s.lat, s.lon], { icon: icon }).addTo(stopLayer);
+
+                    m.bindPopup(`
+    <div style="font-family:'Inter',sans-serif; min-width:210px;">
+        <div style="font-weight:800; color:#2c3e50; font-size:15px; margin-bottom:2px;">${s.name}</div>
+        <div style="font-size:11px; color:#666; margin-bottom:10px;">Stop #${s.code} • ${route} Route</div>
+       
+        <div id="eta-box-${s.code}" style="background:#f8f9fa; border:1px solid #ddd; border-radius:8px; padding:12px; margin-bottom:10px; text-align:center; transition: all 0.3s;">
+            <div id="eta-label-${s.code}" style="font-size:10px; text-transform:uppercase; color:#888; letter-spacing:1px; font-weight:bold;">DEPARTING IN</div>
+            <div id="eta-timer-${s.code}" style="font-size:26px; font-weight:800; color:#2c3e50; margin:4px 0; font-variant-numeric: tabular-nums;">--:--</div>
+            <div id="eta-sub-${s.code}" style="font-size:11px; color:#630031; font-weight:600;">Connecting...</div>
+        </div>
+       
+        <div style="margin-top: 10px; padding: 8px; background: #f8f9fa; border-radius: 6px;">
+            <label style="display: flex; align-items: center; cursor: pointer; font-size: 12px; color: #555;">
+                <input type="checkbox" id="allroutes-${s.code}" onchange="toggleAllRoutes('${s.code}', '${route}')" style="margin-right: 6px;">
+                <span>Show all routes at this stop</span>
+            </label>
+        </div>
+        
+        <button class="stop-popup-btn" onclick="checkDepartures('${s.code}', '${route}', this)">
+            Station Board (All Routes)
+        </button>
+    </div>
+`);
+
+                    m.on('popupopen', async () => {
+                        if (liveEtaTimer) clearInterval(liveEtaTimer);
+
+                        const timerEl = document.getElementById(`eta-timer-${s.code}`);
+                        if(timerEl) timerEl.innerText = "Loading...";
+                        
+                        let cachedSchedule = [];
+                        let currentStopSequence = -1;
+                        let previousFirstDeparture = null; // Track schedule changes
+                        
+                        // Function to fetch fresh schedule data
+                        const fetchSchedule = async () => {
+    try {
+        const res = await fetch(`${API}/departures?code=${s.code}`);
+        const data = await res.json();
+        
+        if (json.stops) {
+            const stopIndex = json.stops.findIndex(st => st.code === s.code);
+            currentStopSequence = stopIndex;
+        }
+        
+        // NEW: Check if all-routes mode is enabled
+        const showAllRoutes = allRoutesMode[s.code] || false;
+        
+        const newSchedule = data
+            .filter(d => showAllRoutes || d.route === route) // CHANGED: conditional filter
+            .map((d, idx, arr) => {
+                const today = new Date();
+                const timeParts = d.time.split("T")[1].split(":"); 
+                const schedDate = new Date();
+                schedDate.setHours(parseInt(timeParts[0]), parseInt(timeParts[1]), 0, 0);
+                
+                if (schedDate.getHours() < 4 && today.getHours() > 20) {
+                    schedDate.setDate(schedDate.getDate() + 1);
+                }
+
+                let prevTimecheckDeparture = null;
+                if (!isTC) {
+                    for (let i = idx - 1; i >= 0; i--) {
+                        if (arr[i].isTimecheck || data[i].isTimePoint === "Y") {
+                            const tcTime = new Date(arr[i].time);
+                            if (tcTime.getHours() < 4 && today.getHours() > 20) {
+                                tcTime.setDate(tcTime.getDate() + 1);
+                            }
+                            prevTimecheckDeparture = tcTime;
+                            break;
+                        }
+                    }
+                }
+
+                return { 
+                    ...d, 
+                    date: schedDate, 
+                    isTimecheck: isTC,
+                    prevTimecheckDeparture: prevTimecheckDeparture,
+                    route: d.route // NEW: Include route info
+                };
+            })
+            .sort((a,b) => a.date - b.date);
+
+        const pastCutoff = new Date();
+        pastCutoff.setMinutes(pastCutoff.getMinutes() - 5);
+        return newSchedule.filter(s => s.date > pastCutoff);
+    } catch(e) { 
+        console.error("Schedule fetch failed", e); 
+        return cachedSchedule;
+    }
+};                        
+                        // Initial load
+                        cachedSchedule = await fetchSchedule();
+                        if (cachedSchedule.length > 0) {
+                            previousFirstDeparture = cachedSchedule[0].date.getTime();
+                        }
+
+                        const updateDisplay = async () => {
+    const timerEl = document.getElementById(`eta-timer-${s.code}`);
+    const subEl = document.getElementById(`eta-sub-${s.code}`);
+    const lblEl = document.getElementById(`eta-label-${s.code}`);
+    const boxEl = document.getElementById(`eta-box-${s.code}`);
+    if (!timerEl) return;
+
+    // 1. Data Refresh (Keep this mostly the same)
+    const nowTs = Date.now();
+    if (!updateDisplay.lastFetch || (nowTs - updateDisplay.lastFetch > 10000)) {
+        const freshSchedule = await fetchSchedule();
+        if (freshSchedule.length > 0 && cachedSchedule.length > 0) {
+             if (freshSchedule[0].date.getTime() !== cachedSchedule[0].date.getTime()) {
+                 cachedSchedule = freshSchedule; // Bus passed
+             }
+        } else {
+             cachedSchedule = freshSchedule;
+        }
+        updateDisplay.lastFetch = nowTs;
+    }
+
+    // 2. Get Prediction
+    const p = predictNextDeparture(cachedSchedule, s.lat, s.lon, route, s.code, json.shape, json.stops, currentStopSequence);
+    
+    if (!p) { timerEl.innerText = "--"; return; }
+
+    // --- 3. DYNAMIC COUNTDOWN CALCULATION ---
+    // We assume p.etaTime is the source of truth.
+    // We calculate seconds remaining RIGHT NOW, regardless of when data was fetched.
+    let liveSeconds = 0;
+    if (p.etaTime) {
+        liveSeconds = (p.etaTime.getTime() - Date.now()) / 1000;
+    } else if (p.seconds) {
+        liveSeconds = p.seconds; // Fallback
+    }
+    // Prevent negative numbers unless it's a specific "ago" state
+    liveSeconds = Math.max(0, liveSeconds);
+
+    // Formatter Helpers
+    const schedStr = p.scheduledTime ? p.scheduledTime.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}) : "";
+    const min = Math.floor(liveSeconds / 60);
+    const sec = Math.floor(liveSeconds % 60).toString().padStart(2, '0');
+    
+    // --- 4. RENDER STATES ---
+
+    // A. END OF SERVICE
+    if (p.type === "end_of_service") {
+        boxEl.style.background = "#f8f9fa"; boxEl.style.border = "1px solid #ddd";
+        lblEl.innerHTML = `<span style="color:#d32f2f; font-weight:800;">SERVICE ENDED</span>`;
+        timerEl.innerText = "--:--";
+        subEl.innerText = "No more scheduled runs";
+        return;
+    }
+
+    // B. TIMECHECK SCREEN (Dedicated UI)
+    if (p.type === "timecheck_holding" || p.type === "timecheck_departing") {
+        boxEl.style.background = "#2c3e50"; // Dark Blue Theme
+        boxEl.style.border = "none";
+        boxEl.style.color = "white";
+        
+        lblEl.innerHTML = `<span style="color:#bdc3c7;">TIMECHECK STOP</span>`;
+        
+        if (p.type === "timecheck_holding") {
+             // Show Countdown to Departure
+             timerEl.style.color = "white";
+             timerEl.innerText = `Departs in ${min}:${sec}`;
+             subEl.innerHTML = `<span style="color:#ecf0f1;">Bus ${p.busId} is holding until ${schedStr}</span>`;
+        } else {
+             // Departing Now
+             timerEl.style.color = "#e74c3c"; // Red warning
+             timerEl.innerHTML = "DEPARTING NOW";
+             subEl.innerHTML = `<span style="color:#ecf0f1;">Bus ${p.busId} is leaving</span>`;
+        }
+        return;
+    }
+
+    // C. ARRIVED
+    if (p.type === "arrived") {
+        boxEl.style.background = "#630031"; boxEl.style.border = "none";
+        lblEl.innerHTML = `<span style="color:white;">CURRENTLY AT STOP</span>`;
+        timerEl.innerHTML = `<span style="color:white; animation:pulse 1s infinite;">ARRIVED</span>`;
+        subEl.innerHTML = `<span style="color:white;">Bus ${p.busId} • ${p.dest}</span>`;
+        return;
+    }
+
+    // D. LIVE TRACKING (En Route / Approaching)
+    // This is the "Always Est. Arrival" screen
+    if (p.type === "en_route" || p.type === "approaching") {
+        const isApproaching = (liveSeconds < 60);
+        
+        boxEl.style.background = isApproaching ? "#fff" : "#fff";
+        boxEl.style.border = isApproaching ? "2px solid #630031" : "1px solid #ddd"; // Thick border if close
+        boxEl.style.color = "#333";
+
+        lblEl.innerHTML = `EST. DEPARTURE <span style="color:#666;">${p.etaTime.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'})}</span>`;
+        
+        // THE COUNTDOWN
+        if (liveSeconds < 60) {
+            timerEl.innerHTML = `<span style="color:#cf4420; font-weight:900;">${Math.floor(liveSeconds)}s</span>`;
+        } else {
+            timerEl.innerText = `${min} min`;
+        }
+        
+        // Status Badge
+        const statusClass = (p.status === "late") ? "late" : (p.status === "early") ? "early" : "ontime";
+        const routeBadge = p.route ? `<span style="background: var(--maroon); color: white; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: bold; margin-right: 4px;">${p.route}</span>` : '';
+        
+        subEl.innerHTML = `
+            <div style="margin-top:2px;">${routeBadge} ${p.dest}</div>
+            <div style="margin-top:4px; font-size:11px;">
+                <span class="tag ${statusClass}">${p.statusText}</span>
+            </div>
+        `;
+        return;
+    }
+
+    // E. PLANNED (Fallback - only if NO BUS exists)
+    boxEl.style.background = "#fff"; boxEl.style.border = "1px solid #ddd";
+    lblEl.innerHTML = `NEXT SCHEDULED`;
+    timerEl.innerText = schedStr;
+    subEl.innerText = "Waiting for updated data...";
+};
+    // NEW: Make updateDisplay accessible globally for checkbox refresh
+    window.activeStopUpdateFunction = updateDisplay;
+    
+    // Initial load
+    cachedSchedule = await fetchSchedule();
+    if (cachedSchedule.length > 0) {
+        previousFirstDeparture = cachedSchedule[0].date.getTime();
+    }
+
+                        updateDisplay();
+                        liveEtaTimer = setInterval(updateDisplay, 2000);
+                    });
+
+                    m.on('popupclose', () => { 
+                        if (liveEtaTimer) {
+                            clearInterval(liveEtaTimer); 
+                            liveEtaTimer = null;
+                        }
+
+                         window.activeStopUpdateFunction = null; // NEW: Clear the reference
+                    });
+                });
+                document.getElementById('sys-status').innerText = `Tracking Bus ${id} • ${json.stops.length} Stops`;
+            } else {
+                loadGenericStops(route);
+            }
+            if (busMarkers[id]) busMarkers[id].openPopup();
+        } catch(e) { console.error(e); }
+    }
+
+    async function checkDepartures(code, route, btn) {
+        btn.innerText = "Checking Station Board...";
+        btn.disabled = true;
+        btn.style.opacity = "0.7";
+        btn.style.cursor = "wait";
+
+        try {
+            const res = await fetch(`${API}/departures?code=${code}`);
+            const data = await res.json();
+           
+            if (data.length > 0) {
+                data.sort((a, b) => new Date(a.time) - new Date(b.time));
+
+                let listHtml = `<div style="margin-top:8px; border-top:1px solid #eee; padding-top:4px; max-height:200px; overflow-y:auto;">`;
+               
+                data.forEach(d => {
+                    const dateObj = new Date(d.time);
+                    const timeStr = dateObj.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+                   
+                    const isSelected = (d.route === route);
+                    const borderStyle = isSelected ? "border-left: 3px solid #630031;" : "border-left: 3px solid #ccc;";
+                    const bgStyle = isSelected ? "background:#f0f0f5;" : "background:#f8f9fa;";
+
+                    listHtml += `
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; padding:6px; border-radius:4px; ${bgStyle} ${borderStyle}">
+                            <div style="display:flex; flex-direction:column; max-width:75%;">
+                                <div style="display:flex; align-items:center;">
+                                    <span style="font-weight:800; color:#333; font-size:11px; margin-right:5px;">${d.route}</span>
+                                    <span style="font-size:10px; color:#555; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">to ${d.dest}</span>
+                                </div>
+                            </div>
+                            <span style="font-weight:700; font-size:12px; color:#2c3e50;">${timeStr}</span>
+                        </div>`;
+                });
+               
+                listHtml += `</div>`;
+                btn.outerHTML = listHtml;
+            } else {
+                btn.innerText = "No upcoming departures";
+                btn.style.background = "#eee";
+                btn.style.color = "#888";
+            }
+        } catch(e) {
+            console.error(e);
+            btn.innerText = "Error loading data";
+        }
+    }
+
+    // --- MATH ENGINE ---
+    function getDistance(lat1, lon1, lat2, lon2) {
+        const R = 6371e3;
+        const φ1 = lat1 * Math.PI/180, φ2 = lat2 * Math.PI/180;
+        const Δφ = (lat2-lat1) * Math.PI/180, Δλ = (lon2-lon1) * Math.PI/180;
+        const a = Math.sin(Δφ/2)*Math.sin(Δφ/2) + Math.cos(φ1)*Math.cos(φ2) * Math.sin(Δλ/2)*Math.sin(Δλ/2);
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    }
+
+    function hasBusPassed(bus, stopLat, stopLon) {
+        const dist = getDistance(bus.lat, bus.lon, stopLat, stopLon);
+        
+        if (dist < 35) return false; 
+
+        const y = Math.sin((stopLon - bus.lon) * Math.PI / 180) * Math.cos(stopLat * Math.PI / 180);
+        const x = Math.cos(bus.lat * Math.PI / 180) * Math.sin(stopLat * Math.PI / 180) -
+                  Math.sin(bus.lat * Math.PI / 180) * Math.cos(stopLat * Math.PI / 180) * Math.cos((stopLon - bus.lon) * Math.PI / 180);
+        const bearingToStop = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+
+        let angleDiff = Math.abs(bus.heading - bearingToStop);
+        if (angleDiff > 180) angleDiff = 360 - angleDiff;
+
+        return (angleDiff > 90 && dist > 35);
+    }
+
+    // ✅ ADVANCED ETA: Considers stops remaining, load, and traffic
+// ✅ IMPROVED PHYSICS ENGINE
+function calculatePrecisionETA(bus, stopLat, stopLon, targetStopSeq, busStopSeq, routeShape, allActiveBuses) {
+    // 1. DATA SAFETY
+    if (!bus || typeof bus.lat !== 'number' || typeof bus.lon !== 'number') return null;
+
+   let roadDist;
+    if (routeShape && routeShape.length > 0) {
+         roadDist = getDistanceAlongRoute(routeShape, bus.lat, bus.lon, stopLat, stopLon);
+    } else {
+         const d = getDistance(bus.lat, bus.lon, stopLat, stopLon);
+         if (d < 15) return 0;
+         roadDist = d * 1.35;
+         console.log("FALLING BACK; NO ROUTE PATH FOR DISTANCE");
+    }
+
+    // 3. HUMAN FACTOR SPEEDS
+    let currentSpeedMph = Number(bus.speed) || 0; 
+    let currentSpeedMps = currentSpeedMph * 0.44704;
+    let effectiveSpeed = 6.7; // Base 15mph
+    
+    // --- NEW: THE "LATE DRIVER" BONUS ---
+    // If the bus is significantly late (> 5 mins), assume the driver 
+    // is skipping breaks and accelerating faster to catch up.
+    let adherence = Number(bus.adherence) || 0;
+    let urgencyMultiplier = 1.0;
+    
+    if (adherence > 5) { // 5+ mins late
+        urgencyMultiplier = 1.15; // 15% faster effective speed
+    } else if (adherence < -2) { // 2+ mins early
+        urgencyMultiplier = 0.85; // Driver will drag feet to not burn time
+    }
+
+    // --- NEW: RUSH HOUR DRAG ---
+    // Traffic is naturally 20% slower during PM peak
+    const now = new Date();
+    const hour = now.getHours();
+    const isWeekend = (now.getDay() === 0 || now.getDay() === 6);
+    let trafficDrag = 1.0;
+
+    if (!isWeekend && hour >= 16 && hour <= 18) {
+        trafficDrag = 0.8; // Rush hour speed reduction
+    }
+
+    // CALCULATE SPEED
+    if (currentSpeedMph > 35) {
+        effectiveSpeed = currentSpeedMps; // Highway mode
+    } else if (currentSpeedMph > 5) {
+        // Weighted average + Urgency
+        effectiveSpeed = ((currentSpeedMps * 0.7) + (6.7 * 0.3)) * urgencyMultiplier * trafficDrag;
+    } else {
+        // Stopped logic
+        effectiveSpeed = 6.7 * trafficDrag; 
+    }
+
+    let seconds = (roadDist / effectiveSpeed);
+
+    // 4. DYNAMIC STOP PENALTIES (The "Per Stop" Logic)
+    if (typeof targetStopSeq === 'number' && typeof busStopSeq === 'number' && 
+        targetStopSeq >= 0 && busStopSeq >= 0 && targetStopSeq > busStopSeq) {
+        
+        const stopsRemaining = targetStopSeq - busStopSeq;
+        
+        // --- NEW: CROWDED DWELL TIME ---
+        // How long does the bus sit at a stop?
+        // Empty bus = 10s (Door open, door close)
+        // Full bus  = 25s (People shuffling, slow boarding)
+        let percentCap = Number(bus.percentCap) || 0;
+        
+        let dwellTimePerStop = 12; // Base seconds
+        
+        if (percentCap > 90) dwellTimePerStop = 25;      // Sardine can
+        else if (percentCap > 50) dwellTimePerStop = 18; // Busy
+        else if (percentCap < 10) dwellTimePerStop = 8;  // Ghost bus (likely skips stops)
+
+        // Apply penalty PER STOP
+        seconds += (stopsRemaining * dwellTimePerStop);
+    }
+
+// --- NEW: THE "BUS BUNCHING" BONUS ---
+    // Check if this bus is trailing another bus of the same route closely.
+    let isTrailing = false;
+    if (allActiveBuses) {
+        // Find leader
+        const leader = allActiveBuses.find(b => 
+            b.id !== bus.id && 
+            b.route === bus.route && 
+            b.stopSequence > busStopSeq && 
+            b.stopSequence < busStopSeq + 4 // Just ahead
+        );
+        if (leader) isTrailing = true;
+    }
+
+let intersectionPenalty = 0;
+    
+    if (targetStopSeq > busStopSeq && roadDist > 0) {
+        const stopsToPass = targetStopSeq - busStopSeq;
+        const distMiles = roadDist * 0.000621371;
+        
+        // Calculate "Stop Density"
+        const stopsPerMile = stopsToPass / distMiles;
+        
+        if (stopsPerMile > 8) {
+            // Dense city blocks (lots of lights/signs)
+            // Add 10 seconds of "traffic light time" per mile
+            intersectionPenalty = distMiles * 45; 
+        }
+    }
+
+    // 4. DWELL TIME (With Bunching Logic)
+    if (targetStopSeq > busStopSeq) {
+        const stopsRemaining = targetStopSeq - busStopSeq;
+        let percentCap = Number(bus.percentCap) || 0;
+        
+        let dwellTimePerStop = 12;
+        if (percentCap > 90) dwellTimePerStop = 25;      
+        else if (percentCap > 50) dwellTimePerStop = 18; 
+        else if (percentCap < 10) dwellTimePerStop = 8;  
+
+        // THE BUNCHING EFFECT:
+        // If this bus is trailing a leader, the leader is picking up the pax.
+        // This bus will likely skip stops or dwell for shorter times.
+        if (isTrailing) {
+            dwellTimePerStop = dwellTimePerStop * 0.4; // 60% reduction in dwell time
+            console.log(`Bus ${bus.id} is drafting/bunching - speeding up dwell times.`);
+        }
+
+        seconds += (stopsRemaining * dwellTimePerStop);
+    }
+
+    if (roadDist < 200) {
+        seconds += 8;
+    }
+    
+    return Math.max(0, Math.round(seconds));
+}
+    // --- POPUP ---
+    function getPopup(id, route, pattern, pax, speed, status, isStopped, percentCap, isTimePoint, isLR) {
+        let statusHtml = '';
+        if (isTimePoint && isStopped) statusHtml = `<span class="tag hold">🕒 Time Check</span>`;
+        else if (isStopped) statusHtml = `<span class="tag late" style="background:#ffebee; color:#c62828;">🛑 At Stop</span>`;
+        else statusHtml = `<span class="tag early" style="background:#e8f5e9; color:#2e7d32;">🟢 Moving</span>`;
+
+        let capHtml = `${percentCap}%`;
+        if (percentCap >= 90) capHtml = `<span class="tag full">FULL (${percentCap}%)</span>`;
+
+        const spdCtx = getSpeedContext(speed);
+        const speedHtml = `<span class="stat-chip" style="color:${spdCtx.color}">${speed} mph</span>`;
+
+        let lrAlert = isLR ? `<div style="background:#000; color:red; text-align:center; font-weight:bold; margin-bottom:5px; border-radius:4px;">⚠️ LAST RUN OF NIGHT ⚠️</div>` : '';
+
+        return `
+            <div class="pop-h">Bus ${id}</div>
+            <div class="pop-b">
+                ${lrAlert}
+                <div class="pop-row"><span>Status:</span> ${statusHtml}</div>
+                <div class="pop-row"><span>Speed:</span> ${speedHtml}</div>
+                <div class="pop-row"><span>Load:</span> <span class="stat-chip">${pax} pax (${capHtml})</span></div>
+                <hr style="border:0; border-top:1px solid #eee; margin:8px 0;">
+                <div style="font-size:0.8rem; color:#666;">${pattern}</div>
+            </div>`;
+    }
+
+// ✅ NEW GEOMETRY ENGINE: Calculates real distance along the polyline
+function getDistanceAlongRoute(shape, startLat, startLon, endLat, endLon) {
+    if (!shape || shape.length < 2) return getDistance(startLat, startLon, endLat, endLon) * 1.35; // Fallback
+
+    // 1. Find the index of the route point closest to the BUS
+    let busIdx = -1;
+    let minBusDist = Infinity;
+    
+    // Optimization: Don't search the whole shape if we know where we are, 
+    // but for safety we search all points to snap correctly.
+    for (let i = 0; i < shape.length; i++) {
+        const d = getDistance(startLat, startLon, shape[i][0], shape[i][1]);
+        if (d < minBusDist) {
+            minBusDist = d;
+            busIdx = i;
+        }
+    }
+
+    // 2. Find the index of the route point closest to the STOP
+    let stopIdx = -1;
+    let minStopDist = Infinity;
+
+    for (let i = 0; i < shape.length; i++) {
+        const d = getDistance(endLat, endLon, shape[i][0], shape[i][1]);
+        if (d < minStopDist) {
+            minStopDist = d;
+            stopIdx = i;
+        }
+    }
+
+    if (busIdx === -1 || stopIdx === -1) return getDistance(startLat, startLon, endLat, endLon) * 1.35;
+
+    // 3. Sum the distance of the segments between them
+    let totalMeters = 0;
+
+    if (busIdx <= stopIdx) {
+        // Standard Case: Bus is before the stop on the line
+        for (let i = busIdx; i < stopIdx; i++) {
+            totalMeters += getDistance(shape[i][0], shape[i][1], shape[i+1][0], shape[i+1][1]);
+        }
+    } else {
+        // Loop Case: Bus is "after" the stop index, meaning it has to finish the loop
+        // and come back around (if it's a continuous loop route).
+        // A) Bus to End of Route
+        for (let i = busIdx; i < shape.length - 1; i++) {
+            totalMeters += getDistance(shape[i][0], shape[i][1], shape[i+1][0], shape[i+1][1]);
+        }
+        // B) Start of Route to Stop
+        for (let i = 0; i < stopIdx; i++) {
+            totalMeters += getDistance(shape[i][0], shape[i][1], shape[i+1][0], shape[i+1][1]);
+        }
+    }
+
+    return totalMeters;
+}
+
+    function renderSidebar(routes) {
+        const container = document.getElementById('list-container');
+        const keys = Object.keys(routes).sort();
+
+        if (container.childElementCount !== keys.length) {
+            container.innerHTML = "";
+            keys.forEach(r => {
+                const fullName = routeNames[r] || `Route ${r}`;
+                
+                container.innerHTML += `
+                    <div class="route-group" id="group-${r}">
+                        <div class="route-header" onclick="toggleRoute('${r}')">
+                            <div class="r-badge">${r}</div>
+                            <div class="r-title">${fullName}</div>
+                            <div class="r-count" id="count-${r}">0</div>
+                        </div>
+                        <div class="bus-list" id="list-${r}"></div>
+                    </div>`;
+            });
+        }
+
+        keys.forEach(r => {
+            document.getElementById(`count-${r}`).innerText = routes[r].count;
+            const listDiv = document.getElementById(`list-${r}`);
+            let html = "";
+
+            routes[r].buses.forEach(b => {
+                const selectedClass = (b.id === selectedBusId) ? "selected" : "";
+               
+                const accTag = isAccordion(b.id) ? `<span style="font-size:0.7em; background:#333; color:#fff; padding:1px 3px; border-radius:3px; margin-left:4px;">ARTIC</span>` : "";
+               
+                let extraStatus = "";
+               
+                if (b.isTimePoint && b.isStopped) extraStatus += `<span class="tc-badge">HOLD</span>`;
+               
+                if (b.isLR) extraStatus += `<span class="lr-badge">LAST RUN</span>`;
+
+                html += `<div class="bus-item ${selectedClass}" onclick="selectBus('${b.id}', '${r}', '${b.pattern}')">
+                            <div style="display:flex; justify-content:space-between;">
+                                <span><b>Bus ${b.id}</b> ${accTag} ${extraStatus}</span>
+                                <span style="font-size:0.8em; color:#888;">${b.pax} pax</span>
+                            </div>
+                            <div class="bus-ptrn">${b.pattern}</div>
+                        </div>`;
+            });
+            listDiv.innerHTML = html;
+        });
+
+        if (openRoute) document.getElementById(`group-${openRoute}`)?.classList.add('open');
+    }
+
+    function toggleRoute(route) {
+        const isClosing = (openRoute === route);
+        
+        if (isClosing) {
+            clearSelection();
+        } else {
+            document.querySelectorAll('.route-group').forEach(el => el.classList.remove('open'));
+            openRoute = route;
+            currentSelectedRoute = route;
+            document.getElementById(`group-${route}`).classList.add('open');
+        }
+    }
+
+async function toggleAllRoutes(stopCode, currentRoute) {
+    allRoutesMode[stopCode] = document.getElementById(`allroutes-${stopCode}`).checked;
+    
+    // Clear and restart the timer
+    if (liveEtaTimer) {
+        clearInterval(liveEtaTimer);
+    }
+    
+    // Show loading state
+    const timerEl = document.getElementById(`eta-timer-${stopCode}`);
+    const subEl = document.getElementById(`eta-sub-${stopCode}`);
+    if (timerEl) timerEl.innerText = "Refreshing...";
+    if (subEl) subEl.innerText = "Loading all routes...";
+    
+    // Force immediate update by calling the stored update function
+    if (window.activeStopUpdateFunction) {
+        // Clear old schedule to force fresh fetch
+        await window.activeStopUpdateFunction();
+        
+        // Restart the timer
+        if (liveEtaTimer) clearInterval(liveEtaTimer);
+        liveEtaTimer = setInterval(window.activeStopUpdateFunction, 1000);
+    }
+}
+
+    updateSystem();
+    setInterval(updateSystem, 2000);
+
+</script>
+</body>
+</html>
