@@ -241,7 +241,7 @@
 let currentSelectedRoute = null;
 let allRoutesMode = {};
 
-    const API = "http://127.0.0.1:5000";
+    const API = "";
     const map = L.map('map', { zoomControl: false }).setView([37.2296, -80.4139], 14);
     L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { attribution: 'This is an unofficial resource. Presented data may be inaccurate.' }).addTo(map);
     map.attributionControl.setPrefix(false);
@@ -1394,3 +1394,4 @@ async function toggleAllRoutes(stopCode, currentRoute) {
 </body>
 
 </html>
+
