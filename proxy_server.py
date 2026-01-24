@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 import requests
 import xml.etree.ElementTree as ET
@@ -112,6 +112,14 @@ def get_stops():
             })
     return jsonify(stops)
 
+@app.route('/')
+def index():
+    return send_from_directory('.', 'bustracker.html')
+
+@app.route('/bustracker.html')
+def serve_file():
+    return send_from_directory('.', 'bustracker.html')
+
 @app.route('/route_shape')
 def get_shape():
     pattern = request.args.get('pattern')
@@ -143,3 +151,4 @@ if __name__ == '__main__':
     print("🚀 Proxy V19 (Hybrid Engine) Running...")
 
     app.run(port=5000)
+
