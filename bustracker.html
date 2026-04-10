@@ -849,7 +849,8 @@ const versionTs = bus.states && bus.states[0] ? bus.states[0].version : Date.now
 
     } catch (e) { console.error(e); }
 
-    checkAlerts();
+    setInterval(checkAlerts(), 120000);
+    
 }
 
 /* --- ADD TO SCRIPT --- */
@@ -2138,7 +2139,7 @@ function predictBusMotion() {
 // predictBusMotion();
 
     updateSystem();
-    setInterval(updateSystem, 1000);
+    setInterval(updateSystem, 2000);
 
 </script>
 </body>
