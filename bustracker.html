@@ -45,6 +45,56 @@
     max-height: 90vh;
 }
 
+/* --- REPLACE #sidebar AND @media in <style> --- */
+#sidebar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    background: #ffffff; 
+    border-radius: 24px 24px 0 0;
+    box-shadow: 0 -8px 30px rgba(0,0,0,0.15);
+    z-index: 2000;
+    display: flex;
+    flex-direction: column;
+    
+    /* Mobile Drawer Heights */
+    height: 90dvh; 
+    max-height: 90dvh;
+    transition: transform 0.4s cubic-bezier(0.25, 1, 0.5, 1);
+    transform: translateY(calc(100% - 140px)); 
+
+    /* The "Skirt" Buffer - ONLY for mobile */
+    padding-bottom: 100px;
+    margin-bottom: -100px;
+}
+
+#sidebar.open {
+    transform: translateY(0);
+}
+
+/* DESKTOP RESET */
+@media (min-width: 768px) {
+    #sidebar {
+        /* Reset positioning */
+        top: 15px;
+        left: 15px;
+        bottom: auto;
+        width: 350px;
+        
+        /* Reset heights */
+        height: auto; 
+        max-height: 90vh;
+        border-radius: 12px;
+        
+        /* IMPORTANT: Remove transformations and buffers */
+        transform: none !important; 
+        padding-bottom: 0; 
+        margin-bottom: 0;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+    }
+}
+
 /* --- ADD TO <style> --- */
 #sidebar.dragging {
     transition: none !important;
