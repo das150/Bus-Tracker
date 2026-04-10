@@ -1,156 +1,528 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>BT Tracker</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>BTMap</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#630031">
     <style>
+        html, body {
+    overscroll-behavior: none; /* Prevents the "bounce" when you pull the list too far */
+    height: 100%;
+    -webkit-tap-highlight-color: transparent; /* Removes the blue box when clicking buttons */
+}
         :root { --maroon: #630031; --orange: #cf4420; --bg: #f4f4f9; --slate: #2c3e50; --red-alert: #d32f2f; }
         body { margin: 0; font-family: 'Inter', sans-serif; overflow: hidden; background: var(--bg); }
-        #map { height: 100vh; width: 100%; z-index: 0; }
+        #map { height: 100vh; width: 100%; }
+
+        /* SIDEBAR */
         #sidebar {
             position: absolute; top: 15px; left: 15px; width: 350px;
             background: rgba(255,255,255,0.98); border-radius: 12px;
             box-shadow: 0 10px 30px rgba(0,0,0,0.2); z-index: 1000;
             max-height: 90vh; display: flex; flex-direction: column; overflow: hidden;
-            transition: all 0.3s ease;
+            padding-bottom: env(safe-area-inset-bottom); /* Ensures info isn't hidden behind the iPhone home bar */
+    user-select: none
         }
-        
-        #alert-box {
-            background: var(--orange); color: white; font-size: 0.85rem;
-            padding: 8px 15px; display: none; cursor: pointer;
-            border-bottom: 1px solid rgba(0,0,0,0.1); font-weight: 600;
-            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-        }
+        /* --- REPLACE SIDEBAR & ADD DRAWER CSS in <style> --- */
+#sidebar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    background: rgba(255, 255, 255, 0.98);
+    border-radius: 20px 20px 0 0;
+    box-shadow: 0 -5px 25px rgba(0,0,0,0.15);
+    z-index: 2000;
+    display: flex;
+    flex-direction: column;
+    transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    /* Collapsed state: shows handle and header only */
+    transform: translateY(calc(100% - 130px)); 
+    max-height: 90vh;
+}
+
+/* --- ADD TO <style> --- */
+#sidebar.dragging {
+    transition: none !important;
+}
+
+#drag-handle {
+    touch-action: none; /* Prevents browser from intercepting the drag */
+    user-select: none;
+}
+
+#sidebar.open {
+    transform: translateY(0);
+}
+
+/* The "Tiny Bar" Drag Handle */
+#drag-handle {
+    width: 100%;
+    height: 30px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    cursor: pointer;
+}
+
+.handle-bar {
+    width: 40px;
+    height: 5px;
+    background: #cbd5e1;
+    border-radius: 10px;
+}
+
+/* Header Adjustments */
+.header { padding: 5px 20px 15px 20px; }
+
+/* Desktop View Override */
+@media (min-width: 768px) {
+    #sidebar {
+        top: 15px;
+        left: 15px;
+        bottom: auto;
+        width: 350px;
+        border-radius: 12px;
+        transform: none !important;
+        max-height: 90vh;
+    }
+    #drag-handle { display: none; } /* Hide handle on desktop */
+}
+
+/* Ensure map fills screen */
+#map { height: 100vh; width: 100%; z-index: 1; }
+
+/* Adjust Service Badge for mobile */
+#service-level-badge {
+    top: 10px;
+    right: 10px;
+    font-size: 10px;
+    padding: 6px 10px;
+}
+       
+        /* --- REPLACE #alert-box in <style> --- */
+#alert-box {
+    background: var(--orange); 
+    color: white; 
+    font-size: 0.85rem;
+    padding: 10px 0; /* Vertical padding only */
+    display: none; 
+    cursor: pointer;
+    border-bottom: 1px solid rgba(0,0,0,0.1); 
+    font-weight: 700;
+    overflow: hidden; /* Hide the text outside the box */
+    white-space: nowrap;
+    position: relative;
+}
+
+/* The scrolling container */
+#alert-inner {
+    display: inline-block;
+    padding-left: 100%; /* Start the text from the right edge */
+    animation: marquee-scroll 18s linear infinite;
+}
+
+/* Pause the scroll when you hover to read specific details */
+#alert-box:hover #alert-inner {
+    animation-play-state: paused;
+}
+
+@keyframes marquee-scroll {
+    0% { transform: translateX(0); }
+    100% { transform: translateX(-100%); }
+}
 
         .stop-node {
-            background-color: #ffffff; border: 2px solid #2c3e50;
-            border-radius: 50%; box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-            width: 14px !important; height: 14px !important;
-            margin-left: -7px !important; margin-top: -7px !important;   
+            background-color: #ffffff;
+            border: 2px solid #2c3e50;
+            border-radius: 50%;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+            width: 14px !important;
+            height: 14px !important;
+            margin-left: -7px !important; 
+            margin-top: -7px !important;  
             cursor: pointer;
             transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275), border-color 0.2s;
-            display: flex; align-items: center; justify-content: center;
-            font-size: 9px; line-height: 1;
-        }
-        .stop-node.timecheck-node {
-            border: 2px solid #630031; background-color: #2c3e50; 
-            transform: scale(1.3); z-index: 500; color: white;
-        }
-        .stop-node:hover {
-            transform: scale(1.5); border-color: var(--maroon);
-            background-color: #fff; z-index: 1000 !important;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 9px;
+            line-height: 1;
         }
 
-        .header { padding: 15px 20px; border-bottom: 1px solid #eee; background: white; flex-shrink: 0; }
+        .stop-node.timecheck-node {
+            border: 2px solid #630031; 
+            background-color: #2c3e50; 
+            transform: scale(1.3);
+            z-index: 500;
+            color: white;
+        }
+
+        .header { padding: 15px 20px; border-bottom: 1px solid #eee; background: white; }
         h1 { margin: 0; font-size: 1.2rem; color: var(--maroon); }
         .status-txt { font-size: 0.8rem; color: #666; margin-top: 4px; }
-        
-        #list-container { overflow-y: auto; padding: 10px; background: #f8f9fa; flex-grow: 1; -webkit-overflow-scrolling: touch; }
+        #list-container { overflow-y: auto; padding: 10px; background: #f8f9fa; flex-grow: 1; }
 
+        /* BUS LIST */
         .route-group { margin-bottom: 8px; background: white; border-radius: 8px; border: 1px solid #ddd; overflow: hidden; }
-        .route-header { padding: 12px; cursor: pointer; display: flex; align-items: center; transition: background 0.2s; }
+        .route-header { padding: 12px; cursor: pointer; display: flex; align-items: center; transition: background 0.2s; border-left: 4px solid transparent;}
         .route-header:hover { background: #f0f0f0; }
-        .r-badge { background: var(--maroon); color: white; padding: 4px 8px; border-radius: 6px; font-weight: bold; font-size: 0.9rem; width: 45px; text-align: center; margin-right: 12px; }
+        .r-badge { 
+            color: white; 
+            padding: 2px 0; 
+            border-radius: 4px; 
+            font-weight: 800; 
+            font-size: 0.75rem; 
+            width: 42px; 
+            text-align: center; 
+            margin-right: 12px;
+            box-shadow: inset 0 -2px 0 rgba(0,0,0,0.2);
+        }
         .r-title { font-weight: 700; color: #333; flex-grow: 1; }
         .r-count { font-size: 0.8rem; color: #888; background: #eee; padding: 2px 8px; border-radius: 10px; }
         .bus-list { display: none; border-top: 1px solid #eee; }
         .route-group.open .bus-list { display: block; }
-        .bus-item { padding: 12px 15px 12px 50px; cursor: pointer; border-bottom: 1px solid #f5f5f5; font-size: 0.9rem; color: #555; position: relative; }
+        .bus-item { padding: 10px 15px 10px 50px; cursor: pointer; border-bottom: 1px solid #f5f5f5; font-size: 0.9rem; color: #555; position: relative; }
         .bus-item:hover { background: #fffbf0; color: var(--maroon); }
         .bus-item.selected { background: #ffebeb; border-left: 4px solid var(--maroon); font-weight: bold; }
         .bus-ptrn { font-size: 0.8rem; color: #999; display: block; margin-top: 2px; }
+.route-group.open .route-header {
+            background: #fdfdfd;
+            border-left: 4px solid var(--maroon);
+        }
 
+        /* BADGES */
         .tc-badge { font-size: 0.7em; background: #2c3e50; color: #fff; padding: 1px 4px; border-radius: 3px; margin-left: 5px; font-weight: bold; }
         .electric-badge { position: absolute; bottom: 6px; right: 9px; z-index: 9999 !important; background: #ffcc00; color: #333; border-radius: 50%; width: 14px; height: 14px; font-size: 10px; display: flex; justify-content: center; align-items: center; border: 1px solid white; z-index: 5; }
         .top-badge { position: absolute; top: -14px; left: 50%; transform: translateX(-50%); color: white; font-size: 9px; padding: 2px 5px; border-radius: 4px; font-weight: bold; white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
         .bdg-full { background: var(--red-alert); animation: pulse 1s infinite; }
         .bdg-busy { background: #f57c00; }
         .bdg-hold { background: #2c3e50; border: 1px solid white; }
+
         @keyframes pulse { 0% { transform: translateX(-50%) scale(1); } 50% { transform: translateX(-50%) scale(1.1); } 100% { transform: translateX(-50%) scale(1); } }
+
+        /* MAP ICONS */
         .bus-rotate-wrap { width: 60px; height: 60px; display: flex; justify-content: center; align-items: center; transition: all 1s linear; }
-        .bus-body-base { background: var(--maroon); border: 2px solid white; color: white; font-weight: bold; font-size: 10px; display: flex; justify-content: center; align-items: center; box-shadow: 0 2px 5px rgba(0,0,0,0.3); position: relative; }
+        .bus-body-base { border: 2px solid white; color: white; font-weight: bold; font-size: 10px; display: flex; justify-content: center; align-items: center; box-shadow: 0 2px 5px rgba(0,0,0,0.3); position: relative; }
         .bus-pointer { position: absolute; top: -8px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-bottom: 8px solid var(--maroon); }
         .std-bus { width: 24px; height: 36px; border-radius: 4px; }
         .acc-container { display: flex; flex-direction: column; align-items: center; gap: 2px; }
         .acc-front { width: 24px; height: 28px; border-radius: 4px 4px 0 0; border-bottom: none; }
         .acc-joint { width: 18px; height: 6px; background: #555; border-radius: 2px; border: 1px solid #333; }
         .acc-rear { width: 24px; height: 20px; border-radius: 0 0 4px 4px; border-top: none; background: var(--maroon); border: 2px solid white; }
-        .lr-badge { font-size: 0.7em; background: #000; color: #ff5555; border: 1px solid red; padding: 1px 4px; border-radius: 3px; margin-left: 5px; font-weight: 800; letter-spacing: 0.5px; }
-        .lr-border { border: 3px solid #cf4420 !important; box-shadow: 0 0 8px #8b0000; z-index: 100 !important; }
-        .leaflet-interactive { transition: stroke-width 0.2s ease; }
 
-        .stop-popup-btn { width: 100%; padding: 10px; background: var(--slate); color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; margin-top: 5px; touch-action: manipulation; }
-        .stop-popup-btn:hover { background: #34495e; }
-        .eta-box { background: #ffffff; border: 1px solid #e0e6ed; border-radius: 12px; padding: 15px; margin-bottom: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); text-align: center; transition: background 0.3s ease; }
-        .eta-label { font-size: 10px; text-transform: uppercase; color: #64748b; letter-spacing: 1.2px; font-weight: 700; margin-bottom: 4px; }
-        .eta-timer { font-size: 32px; font-weight: 800; color: #1e293b; font-family: 'Inter', monospace; line-height: 1; margin: 8px 0; }
-        .eta-sub { font-size: 12px; color: #475569; font-weight: 500; line-height: 1.4; }
+        .stop-marker { background: white; border: 2px solid #555; width: 12px; height: 12px; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.3); cursor: pointer; transition: all 0.2s; }
+        .stop-marker:hover { background: var(--maroon); border-color: white; transform: scale(1.4); }
+
+        /* Custom grouped stop icon (per-route colors) */
+        .stop-icon { position: relative; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; }
+        .stop-center { width: 12px; height: 12px; border-radius: 50%; background: white; border: 2px solid #555; box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
+        .stop-badges { position: absolute; right: -6px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 2px; }
+        .stop-badge { width: 8px; height: 8px; border-radius: 50%; border: 1px solid white; box-shadow: 0 1px 2px rgba(0,0,0,0.2); }
+
+        /* POPUP */
+        .pop-h { background: var(--maroon); color: white; padding: 10px; font-weight: bold; }
+        .pop-b { padding: 12px; min-width: 220px; }
+        .pop-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 0.9rem; align-items: center; }
+        .stat-chip { background: #f0f0f0; padding: 2px 8px; border-radius: 12px; font-weight: 600; font-size: 0.85rem; }
         .tag { padding: 2px 6px; border-radius: 4px; font-size: 0.75rem; font-weight: bold; }
         .tag.early { background: #e8f5e9; color: #2e7d32; }
         .tag.late { background: #ffebee; color: #c62828; }
         .tag.ontime { background: #e3f2fd; color: #1565c0; }
         .tag.hold { background: #333; color: #fff; }
         .tag.full { background: var(--red-alert); color: white; }
-        .tag.approaching { background-color: #630031; color: white; padding: 6px 12px; border-radius: 4px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; animation: pulse 1s infinite; }
-        .pop-h { background: var(--maroon); color: white; padding: 10px; font-weight: bold; }
-        .pop-b { padding: 12px; min-width: 220px; }
-        .pop-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 0.9rem; align-items: center; }
-        .stat-chip { background: #f0f0f0; padding: 2px 8px; border-radius: 12px; font-weight: 600; font-size: 0.85rem; }
-        @media (max-width: 768px) {
-            #sidebar {
-                top: auto !important;
-                left: 0 !important;
-                bottom: 0 !important;
-                width: 100% !important;
-                height: 45vh !important; /* Take up bottom 45% of screen */
-                max-height: 80vh !important;
-                border-radius: 20px 20px 0 0 !important;
-                box-shadow: 0 -5px 20px rgba(0,0,0,0.15);
-            }
+        button.arr-btn { width: 100%; margin-top: 5px; padding: 8px; cursor: pointer; background: #eee; border: 1px solid #ccc; border-radius: 4px; font-weight: 600; }
+        button.arr-btn:hover { background: #ddd; }
+/* PROFESSIONAL BUS POPUP GRID */
+.bus-popup-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    margin-top: 15px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #edf2f7;
+}
 
-            #map {
-                height: 100vh;
-            }
+.bus-stat-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+}
 
-            .bus-item {
-                padding: 15px;
-                font-size: 16px;
-            }
-            .route-header {
-                padding: 15px;
-            }
+.stat-label {
+    font-size: 9px;
+    font-weight: 700;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-top: 8px;
+}
 
-            .leaflet-popup-content-wrapper {
-                border-radius: 8px;
-            }
-            .leaflet-popup-content {
-                min-width: 240px !important; 
-                max-width: 280px !important;
-                margin: 0 !important;
-            }
-            .pop-b { padding: 15px; min-width: auto; }
+.stat-value {
+    font-size: 11px;
+    font-weight: 600;
+    color: #334155;
+    margin-top: 2px;
+}
 
-            #list-container::-webkit-scrollbar {
-                width: 4px;
-            }
-            
-            .leaflet-bottom.leaflet-right {
-                bottom: 46vh !important;
-                right: 10px !important;
-            }
+/* SMART FLOW GAUGE (Speed Visualization) */
+.flow-gauge-wrap {
+    width: 40px;
+    height: 4px;
+    background: #e2e8f0;
+    border-radius: 2px;
+    overflow: hidden;
+    margin-top: 4px;
+}
+
+.flow-gauge-fill {
+    height: 100%;
+    transition: width 0.5s ease, background 0.5s ease;
+}
+
+/* FLAT ANIMATED ICONS (CSS Only) */
+.icon-container {
+    width: 24px;
+    height: 24px;
+    position: relative;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+/* Movement Icon: Pulsing dot for stopped, sliding line for moving */
+.movement-dot {
+    width: 8px;
+    height: 8px;
+    background: #64748b;
+    border-radius: 50%;
+}
+.is-stopped .movement-dot {
+    background: #ef4444;
+    animation: pulse-red 1.5s infinite;
+}
+.is-moving .movement-dot {
+    width: 14px;
+    height: 3px;
+    border-radius: 2px;
+    background: #22c55e;
+    animation: slide-green 1s infinite linear;
+}
+
+@keyframes pulse-red {
+    0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+    70% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+}
+
+@keyframes slide-green {
+    0% { transform: translateX(-4px); opacity: 0; }
+    50% { transform: translateX(0); opacity: 1; }
+    100% { transform: translateX(4px); opacity: 0; }
+}
+
+        .lr-badge {
+            font-size: 0.7em; background: #000; color: #ff5555; border: 1px solid red;
+            padding: 1px 4px; border-radius: 3px; margin-left: 5px; font-weight: 800; letter-spacing: 0.5px;
         }
+        .tag.lastrun { background: #000; color: #ff5555; border: 1px solid red; }
+
+        .lr-border {
+            border: 3px solid #cf4420 !important;
+            box-shadow: 0 0 8px #8b0000;
+            z-index: 100 !important;
+        }
+
+        .leaflet-interactive {
+            transition: stroke-width 0.2s ease;
+        }
+
+        .stop-node:hover {
+            transform: scale(1.5);
+            border-color: var(--maroon);
+            background-color: #fff;
+            z-index: 1000 !important;
+        }
+
+        .stop-popup-btn {
+            width: 100%;
+            padding: 8px;
+            background: var(--slate);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 5px;
+        }
+        .stop-popup-btn:hover { background: #34495e; }
+
+        /* MODERN ETA CARD DESIGN */
+        .eta-box {
+            background: #ffffff;
+            border: 1px solid #e0e6ed;
+            border-radius: 12px;
+            padding: 15px;
+            margin-bottom: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            text-align: center;
+            transition: background 0.3s ease;
+        }
+
+        .eta-label {
+            font-size: 10px;
+            text-transform: uppercase;
+            color: #64748b;
+            letter-spacing: 1.2px;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+
+        .eta-timer {
+            font-size: 32px;
+            font-weight: 800;
+            color: #1e293b;
+            font-family: 'Inter', monospace;
+            line-height: 1;
+            margin: 8px 0;
+        }
+
+        .eta-sub {
+            font-size: 12px;
+            color: #475569;
+            font-weight: 500;
+            line-height: 1.4;
+        }
+
+        .tag.approaching {
+            background-color: #630031;
+            color: white;
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-weight: 800;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            animation: pulse 1s infinite;
+        }
+
+        .tc-popup-label {
+            display: inline-block;
+            background: #2c3e50;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 800;
+            margin-bottom: 8px;
+            letter-spacing: 0.5px;
+        }
+        /* Update these existing classes in your <style> block */
+.stop-node {
+    background-color: #ffffff;
+    border: 2px solid #2c3e50;
+    border-radius: 50%;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    width: 14px !important;  /* Increased slightly for the icon */
+    height: 14px !important; /* Increased slightly for the icon */
+    margin-left: -7px !important; 
+    margin-top: -7px !important;  
+    cursor: pointer;
+    transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275), border-color 0.2s;
+    
+    /* NEW: Center the clock symbol */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 9px;
+    line-height: 1;
+}
+
+.stop-node.timecheck-node {
+    border: 2px solid #630031; 
+    background-color: #2c3e50; 
+    transform: scale(1.3);
+    z-index: 500;
+    color: white; /* Color of the clock symbol */
+}
+/* --- SEARCH AND REPLACE in <style> --- */
+/* --- SEARCH AND REPLACE in <style> --- */
+/* Targeted Bus Popup Design - Isolated via .bus-popup class */
+.bus-popup .leaflet-popup-content-wrapper { border-radius: 16px; padding: 0; overflow: hidden; }
+.bus-popup .leaflet-popup-content { margin: 0; width: 300px !important; }
+.bus-popup .leaflet-popup-close-button { color: white !important; font-size: 22px !important; padding: 10px 12px 0 0 !important; font-weight: bold; }
+
+/* FIX: Standard Stop Popup X Button */
+.leaflet-popup:not(.bus-popup) .leaflet-popup-close-button {
+    color: #444 !important;
+    font-size: 18px !important;
+    padding: 8px 8px 0 0 !important;
+}
+
+.pop-h { background: var(--maroon); color: white; padding: 14px 18px; font-weight: 800; border-radius: 16px 16px 0 0; font-size: 16px; }
+.pop-b { padding: 18px; background: white; }
+
+.bus-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 16px; text-align: center; }
+.bus-stat { display: flex; flex-direction: column; align-items: center; }
+.stat-label { font-size: 10px; color: #94a3b8; text-transform: uppercase; font-weight: 700; margin-top: 6px; }
+.stat-value { font-size: 14px; font-weight: 800; color: #1e293b; }
+
+.pace-gauge { width: 80%; height: 4px; background: #e2e8f0; border-radius: 2px; margin-top: 5px; overflow: hidden; }
+.pace-fill { height: 100%; transition: width 0.8s ease; }
+
+.pop-alert-banner { text-align: center; font-size: 10px; font-weight: 900; padding: 6px; border-radius: 8px; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 1px; }
+.banner-last-run { background: #000; color: #ff5555; border: 1px solid red; animation: pulse-red 2s infinite; }
+.banner-transition { background: #e3f2fd; color: #1565c0; border: 1px solid #90caf9; }
+@keyframes pulse-red { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
+/* --- ADD TO <style> --- */
+#service-level-badge {
+    position: absolute;
+    top: 15px;
+    right: 15px;
+    z-index: 1000;
+    background: white;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-weight: 800;
+    font-size: 11px;
+    text-transform: uppercase;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    border: 1px solid #e2e8f0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.sl-indicator { width: 8px; height: 8px; border-radius: 50%; }
+.sl-full { background: #22c55e; }      /* Green */
+.sl-reduced { background: #f59e0b; }   /* Amber */
+.sl-holiday { background: #ef4444; }   /* Red */
     </style>
 </head>
 <body>
 
+    <div id="service-level-badge">
+    <div class="sl-indicator sl-full" id="sl-dot"></div>
+    <span id="sl-text">Detecting Service...</span>
+</div>
+
 <div id="sidebar">
-    <div id="alert-box" onclick="alert(this.title)">⚠️ Checking Alerts...</div>
+    <div id="drag-handle" onclick="toggleSidebar()">
+        <div class="handle-bar"></div>
+    </div>
+    
+    <div id="alert-box" onclick="alert(this.title)">
+        <div id="alert-inner">Checking Alerts...</div>
+    </div>
+    
     <div class="header">
-        <h1>BT Bus Tracker</h1>
+        <h1>Blacksburg Transit Map</h1>
         <div class="status-txt" id="sys-status">Connecting...</div>
     </div>
+    
     <div id="list-container"></div>
 </div>
 
@@ -158,12 +530,85 @@
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-let currentSelectedRoute = null;
-let allRoutesMode = {};
+/* --- REPLACE btOperationalLogic --- */
+const btOperationalLogic = {
+    // PAIRINGS (The "Switch")
+    "SME": { next: "NMG", bay: "Maroon Bay 7", paired: true, ends: { "FULL SERVICE": "00:45", "REDUCED SERVICE": "21:45", "HOLIDAY SERVICE": "18:45" } },
+    "NMG": { next: "SME", bay: "Maroon Bay 7", paired: true, ends: { "FULL SERVICE": "00:45", "REDUCED SERVICE": "21:45", "HOLIDAY SERVICE": "18:45" } },
+    "SMS": { next: "SMA", bay: "Maroon Bay 6", paired: true, ends: { "FULL SERVICE": "00:45", "REDUCED SERVICE": "21:45", "HOLIDAY SERVICE": "18:45" } },
+    "SMA": { next: "SMS", bay: "Maroon Bay 6", paired: true, ends: { "FULL SERVICE": "00:45", "REDUCED SERVICE": "21:45", "HOLIDAY SERVICE": "18:45" } },
+    
+    // HETHWOOD TRANSITIONS
+    "HWA": { next: "HWC", bay: "Orange Bay 11", hTransition: "12:15", ends: { "FULL SERVICE": "12:15" } },
+    "HWB": { next: "HWC", bay: "Orange Bay 10", hTransition: "12:45", ends: { "FULL SERVICE": "12:45" } },
+    "HWC": { bay: "Orange Bay 11", multiBus: true, ends: { "FULL SERVICE": "00:45", "REDUCED SERVICE": "21:45", "HOLIDAY SERVICE": "18:45" } },
 
-    const API = "";
+    // STANDALONE / RADIUS
+    "UCB": { bay: "Orange Bay 17", multiBus: true, ends: { "FULL SERVICE": "00:45", "REDUCED SERVICE": "21:45", "HOLIDAY SERVICE": "18:45" } },
+    "TCP": { bay: "Orange Bay 13", multiBus: true, ends: { "FULL SERVICE": "00:45", "REDUCED SERVICE": "21:45", "HOLIDAY SERVICE": "18:45" } },
+    "TCR": { bay: "Orange Bay 12", multiBus: true, ends: { "FULL SERVICE": "00:45", "REDUCED SERVICE": "21:45", "HOLIDAY SERVICE": "18:45" } },
+    "PHD": { bay: "Orange Bay 18", multiBus: true, ends: { "FULL SERVICE": "00:45", "REDUCED SERVICE": "21:45" } },
+    "PRG": { bay: "Orange Bay 11", smokingGun: true, ends: { "FULL SERVICE": "21:45" } },
+    "CRB": { bay: "Orange Bay 15", smokingGun: true, ends: { "FULL SERVICE": "18:45" } },
+    "HDG": { bay: "Maroon Bay 3", ends: { "FULL SERVICE": "00:45", "REDUCED SERVICE": "21:45" } },
+    "HXP": { bay: "Maroon Bay 4", ends: { "FULL SERVICE": "00:45" } },
+    "CAS": { next: "Alternating", bay: "Bay 5/14", multiBus: true, ends: { "FULL SERVICE": "00:45", "REDUCED SERVICE": "21:45", "HOLIDAY SERVICE": "18:45" } },
+    "BMR": { bay: "Orange Bay 15", ends: { "FULL SERVICE": "21:45" } },
+    "TTT": { bay: "Squires/Christiansburg", ends: { "FULL SERVICE": "22:45" } }
+};
+
+/* --- ADD TO SCRIPT --- */
+function isActuallyLastRun(routeId, serviceLevel) {
+    const logic = btOperationalLogic[routeId];
+    if (!logic || !logic.ends || !logic.ends[serviceLevel]) return false;
+    const [endH, endM] = logic.ends[serviceLevel].split(':').map(Number);
+    const now = new Date();
+    let endTotal = endH * 60 + endM;
+    let nowTotal = now.getHours() * 60 + now.getMinutes();
+    if (endH < 4) endTotal += 1440; 
+    if (now.getHours() < 4) nowTotal += 1440;
+    return (nowTotal >= (endTotal - 45)) && (nowTotal < endTotal + 15);
+}
+
+/* --- REPLACE getSpecificServiceNote --- */
+function getSpecificServiceNote(routeId, busId, currentPattern, serviceLevel) {
+    const logic = btOperationalLogic[routeId];
+    if (!logic) return { isEnding: false, note: "" };
+
+    const now = new Date();
+    const nowTotal = now.getHours() * 60 + now.getMinutes() + (now.getHours() < 4 ? 1440 : 0);
+    
+    // PRIORITY 1: API "Last Run" Flag
+    const isLR = currentPattern.includes("LR") || currentPattern.toLowerCase().includes("garage");
+
+    // PRIORITY 2: Scheduled End Time (FY26 Route Cards)
+    // Most routes end at 12:45 AM (1485 mins) or 9:45 PM (1305 mins)
+    const endTimeStr = logic.ends[serviceLevel] || logic.ends["FULL SERVICE"] || "00:00";
+    const [endH, endM] = endTimeStr.split(':').map(Number);
+    let endTotal = endH * 60 + endM + (endH < 4 ? 1440 : 0);
+
+    // If within 35 minutes of the scheduled end, force OUT OF SERVICE
+    if (isLR || (nowTotal >= (endTotal - 35))) {
+        return { isEnding: true, type: "ROUTE_END", note: "Final run. Returning to Garage." };
+    }
+
+    // PRIORITY 3: Individual Bus Pull-in (Frequency Reduction)
+    const busesOnRoute = Object.values(busMarkers).filter(m => m.currentRoute === routeId).length;
+    const isPullInWindow = (now.getMinutes() >= 10 && now.getMinutes() <= 25) || (now.getMinutes() >= 40 && now.getMinutes() <= 55);
+    
+    if (logic.multiBus && busesOnRoute > 1 && isPullInWindow && currentPattern.toLowerCase().includes("to tc")) {
+        return { isEnding: true, type: "FREQ_DROP", note: "Bus finishing shift. Wait times will increase." };
+    }
+
+    return { isEnding: false, note: "" };
+}
+
+let currentSelectedRoute = null; // Track which route's shape is displayed
+let allRoutesMode = {}; // Track per-stop whether to show all routes
+
+    const API = "http://127.0.0.1:5000";
     const map = L.map('map', { zoomControl: false }).setView([37.2296, -80.4139], 14);
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { attribution: 'This is an unofficial resource. Presented data may be inaccurate.' }).addTo(map);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { attribution: 'Unofficial Resource' }).addTo(map);
     map.attributionControl.setPrefix(false);
     L.control.zoom({ position: 'bottomright' }).addTo(map);
     
@@ -173,7 +618,34 @@ let allRoutesMode = {};
         }
     });
 
-    const routeNames = {
+async function autoUpdateStopIcon(marker, stopCode, stopName, isTC) {
+    try {
+        const res = await fetch(`${API}/departures?code=${stopCode}`);
+        const data = await res.json();
+        // Identify every unique route code servicing this location [cite: 108, 116, 120]
+        const allRoutes = [...new Set(data.map(d => d.route))];
+        
+        if (allRoutes.length > 0) {
+            let badgesHtml = '';
+            // Display up to 5 colored route badges per stop [cite: 108, 120]
+            allRoutes.slice(0, 5).forEach(rid => {
+                badgesHtml += `<span class="stop-badge" style="background:${getRouteColor(rid)}"></span>`;
+            });
+
+            const centerContent = isTC ? "🕒" : "";
+            marker.setIcon(L.divIcon({
+                className: isTC ? 'stop-node timecheck-node' : 'stop-node',
+                iconSize: [20, 20],
+                html: `<div class="stop-icon" title="${stopName}">
+                        <div class="stop-center">${centerContent}</div>
+                        <div class="stop-badges">${badgesHtml}</div>
+                      </div>`
+            }));
+        }
+    } catch (e) { console.error("Auto-icon update failed", e); }
+}
+
+const routeNames = {
         "BMR": "Beamer Way",
         "CAS": "Campus Shuttle",
         "CRB": "Carpenter Boulevard",
@@ -183,46 +655,83 @@ let allRoutesMode = {};
         "HWB": "Hethwood B",
         "HWC": "Hethwood Combined",
         "HXP": "Hokie Express",
+        "MSN": "Main Street North",
+        "MSS": "Main Street South",
         "NMG": "North Main Givens",
         "NMP": "North Main Patrick Henry",
+        "PHB": "Patrick Henry B",
         "PHD": "Patrick Henry Drive",
         "PRG": "Progress Street",
         "SMA": "South Main Airport",
+        "SME": "South Main Ellett",
         "SMS": "South Main Southpark",
         "TCR": "Toms Creek Road",
-        "TCP": "Toms Creek Progress",
+        "TCP": "Toms Creek via Progress",
+        "TTT": "Two Town Trolley",
         "UCB": "University City Blvd",
         "BLU": "Explorer Blue",
         "GRN": "Explorer Green"
     };
 
+    const routeColors = {
+        "MSN": "#E57200", // BT Orange
+        "MSS": "#630031", // BT Maroon
+        "NMG": "#EF6C00", // Pumpkin
+        "NMP": "#FFB300", // Amber
+        "SME": "#AD1457", // SME Magenta
+        "SMA": "#4A148C", // Indigo
+        "SMS": "#880E4F", // Burgundy
+        "HWA": "#006633", // Hethwood Dark Green
+        "HWB": "#2E7D32", // Forest Green
+        "HWC": "#4CAF50", // Leaf Green
+        "HDG": "#D81B60", // Harding Rose
+        "CAS": "#00A3E0", // BT Sky Blue
+        "HXP": "#9E1B32", // Crimson
+        "BMR": "#2C3E50", // Slate
+        "UCB": "#8A2BE2", // University Violet
+        "PHD": "#004B87", // BT Royal Blue
+        "PRG": "#1565C0", // Cobalt
+        "PHB": "#01579B", // Navy Blue
+        "TCR": "#009682", // Toms Creek Teal
+        "TCP": "#00695C", // Dark Teal
+        "CRC": "#DAA520", // Goldenrod
+        "CRB": "#C5B358", // Gold
+        "TTT": "#4B2E83", // Trolley Purple
+        "BLU": "#0057B7", // Explorer Blue
+        "GRN": "#1E9B4A", // Explorer Green
+        "DEFAULT": "#2C3E50"
+    };
+
+    function getRouteColor(r) { return routeColors[r] || routeColors["DEFAULT"]; }
+
     let busMarkers = {}, busTrails = {}, shapeLayer = L.layerGroup().addTo(map), stopLayer = L.layerGroup().addTo(map);
     let activeRoutes = {}, openRoute = null, selectedBusId = null;
 
-    function isAccordion(id) { return (id.length === 4 && id.charAt(2) === '2'); }
+    // --- UTILS ---
+    function isAccordion(id) { 
+    if (id.length !== 4) return false;
+    const secondDigit = id.charAt(2);
+    const exceptions = ['8520', '8521', '8522'];
+    return (secondDigit === '2' || secondDigit === '3') && !exceptions.includes(id);
+}
+function isShortBus(id) { const n = parseInt(id); return n >= 19 && n <= 506; }
+function getPurchaseYear(id) { return id.length === 4 ? `201${id.charAt(1)}` : "Unknown"; }
     function isElectric(id) { const n = parseInt(id); return (n >= 7000); }
     function isLastRun(pattern) {
         return (pattern && pattern.includes("LR"));
     }
    
-    function getScheduleStatus(adherence) {
-        if (adherence === null || adherence === undefined || adherence === "") {
-            return { text: "On Time", class: "ontime" };
-        }
+function getScheduleStatus(adherence, isStopped, isTimePoint) {
+    if (adherence === null || adherence === undefined || adherence === "") return { text: "On Time", class: "ontime" };
+    const val = parseFloat(adherence);
+    if (isNaN(val)) return { text: "On Time", class: "ontime" };
 
-        const val = parseFloat(adherence);
-        if (isNaN(val)) return { text: "On Time", class: "ontime" };
-
-        if (val > 2) {
-            return { text: `${Math.round(val)}m Late`, class: "late" };
-        }
-        else if (val < -1) {
-            return { text: `${Math.abs(Math.round(val))}m Early`, class: "early" };
-        }
-        else {
-            return { text: "On Time", class: "ontime" };
-        }
-    }
+    // Precision Buffer: Expand margin to 5m at timechecks to prevent false "Late" status [cite: 359]
+    const lateMargin = (isStopped && isTimePoint) ? 5 : 2;
+    if (val > lateMargin) return { text: `${Math.round(val)}m Late`, class: "late" };
+    if (val < -1 && !(isStopped && isTimePoint)) return { text: `${Math.abs(Math.round(val))}m Early`, class: "early" };
+    return { text: "On Time", class: "ontime" };
+}
 
     function getSpeedContext(speedMph) {
         if (speedMph == 0) return { text: "Waiting", color: "#d32f2f" };
@@ -230,6 +739,8 @@ let allRoutesMode = {};
         if (speedMph < 15) return { text: "Light Traffic", color: "#f57c00" };
         return { text: "No Traffic", color: "#2e7d32" };
     }
+
+    // --- MAIN LOOP ---
 async function updateSystem() {
     try {
         const res = await fetch(`${API}/buses`);
@@ -239,22 +750,32 @@ async function updateSystem() {
         let vehicles = json.data || [];
         const now = new Date();
 
+        // --- ✅ FIX: GHOST BUS FILTER ---
+        // Remove any bus that hasn't updated in > 10 minutes
+// --- ✅ FIX: CORRECT GHOST FILTER ---
 vehicles = vehicles.filter(bus => {
+    // 1. Get the timestamp from the correct location
+    // The API calls it 'version' inside the states array
     const timestamp = bus.states && bus.states[0] ? bus.states[0].version : null;
 
+    // 2. Safety: If missing, keep the bus (don't delete valid data)
     if (!timestamp) return true; 
 
+    // 3. Age Check (Timestamp is in milliseconds, so math is easy)
     const ageMs = now.getTime() - timestamp;
     const ageMinutes = ageMs / 60000;
 
+    // If data is older than 10 minutes, DELETE IT.
     if (ageMinutes > 5) {
         console.log(`👻 Ghost Bus Removed: ID ${bus.id} (Last seen ${Math.round(ageMinutes)}m ago)`);
         return false; 
     }
-    
     return true; 
 });
-        document.getElementById('sys-status').innerText = `System Live: ${vehicles.length} Active Buses`;
+// ---------------------------------
+        // ---------------------------------
+
+        document.getElementById('sys-status').innerText = `Currently Tracking ${vehicles.length} Buses`;
         let newRouteData = {};
 
         vehicles.forEach(bus => {
@@ -280,10 +801,11 @@ vehicles = vehicles.filter(bus => {
             if (!newRouteData[route]) newRouteData[route] = { count: 0, buses: [] };
             newRouteData[route].count++;
             newRouteData[route].buses.push({ id, pattern, pax, isStopped, speed: speedMph, percentCap, isTimePoint, isLR });
-
-            updateMarker(id, route, lat, lon, heading, pattern, pax, speedMph, adherence, isStopped, percentCap, isTimePoint, isLR);
+const versionTs = bus.states && bus.states[0] ? bus.states[0].version : Date.now();
+            updateMarker(id, route, lat, lon, heading, pattern, pax, speedMph, adherence, isStopped, percentCap, isTimePoint, isLR, versionTs);
         });
 
+        // 2. CLEANUP (Removes markers for filtered/ghost buses)
         Object.keys(busMarkers).forEach(existingId => {
             const stillActive = vehicles.find(v => v.id === existingId);
             
@@ -306,12 +828,14 @@ vehicles = vehicles.filter(bus => {
                     document.getElementById('sys-status').innerText = "Bus went Out of Service";
                 }
     } else {
+        // NEW: Check if bus changed routes
         const newRoute = stillActive.routeId;
         const marker = busMarkers[existingId];
         
         if (marker.currentRoute !== newRoute) {
             console.log(`Bus ${existingId} switched from ${marker.currentRoute} to ${newRoute}`);
             
+            // If this was the selected bus, refresh the route display
             if (selectedBusId === existingId) {
                 const newPattern = stillActive.patternName || "Loop";
                 selectBus(existingId, newRoute, newPattern);
@@ -321,12 +845,60 @@ vehicles = vehicles.filter(bus => {
 });
 
         renderSidebar(newRouteData);
+        updateServiceLevelDisplay(Object.keys(newRouteData));
 
     } catch (e) { console.error(e); }
 
     checkAlerts();
 }
 
+/* --- ADD TO SCRIPT --- */
+/* --- REPLACE updateServiceLevelDisplay and add Global Variable --- */
+let inferredServiceLevel = "FULL SERVICE"; // Global state
+
+/* --- REPLACE updateServiceLevelDisplay --- */
+function updateServiceLevelDisplay(activeRouteIds) {
+    const slText = document.getElementById('sl-text');
+    const slDot = document.getElementById('sl-dot');
+    const routes = new Set(activeRouteIds);
+    const now = new Date();
+    const day = now.getDay();
+    const hour = now.getHours();
+    const nowTotal = hour * 60 + now.getMinutes() + (hour < 4 ? 1440 : 0);
+
+    // 1. DEDUCTION: Smoking Gun Detection (CRB/PHB/PRG/HWA = Full)
+    const isFullService = routes.has("CRB") || routes.has("PHB") || routes.has("PRG") || routes.has("HWA") || routes.has("HXP");
+    const isReducedService = routes.has("HWC") && !isFullService;
+
+    // 2. PERSISTENCE: Don't downgrade service levels after 9:00 PM (1320 mins)
+    // This stops "Holiday Service" from appearing when buses go to the garage
+    if (isFullService) {
+        inferredServiceLevel = (day === 0 || day === 6) ? "FULL WEEKEND" : "FULL SERVICE";
+        slDot.className = "sl-indicator sl-full";
+    } else if (isReducedService) {
+        if (nowTotal < 1320 || inferredServiceLevel === "REDUCED SERVICE") {
+            inferredServiceLevel = "REDUCED SERVICE";
+            slDot.className = "sl-indicator sl-reduced";
+        }
+    } else if (routes.size > 0 && routes.size < 5 && nowTotal > 480 && nowTotal < 1200) {
+        // Holiday detection only active between 8 AM and 8 PM
+        inferredServiceLevel = "HOLIDAY SERVICE";
+        slDot.className = "sl-indicator sl-holiday";
+    }
+
+    // 3. "ENDING SOON" LOGIC: System-wide alerts based on schedule windows
+    let suffix = "";
+    if (routes.size > 0) {
+        // Flag ending soon if within 45 minutes of scheduled stop
+        if (inferredServiceLevel.includes("FULL") && nowTotal >= 1410) suffix = " - SERVICE ENDING";
+        else if (inferredServiceLevel === "REDUCED SERVICE" && nowTotal >= 1275) suffix = " - SERVICE ENDING";
+        else if (inferredServiceLevel === "HOLIDAY SERVICE" && nowTotal >= 1095) suffix = " - SERVICE ENDING";
+    } else {
+        suffix = " (OFFLINE)";
+    }
+
+    if (slText) slText.innerText = inferredServiceLevel + suffix;
+}
     function clearSelection() {
         selectedBusId = null;
         openRoute = null;
@@ -342,94 +914,132 @@ vehicles = vehicles.filter(bus => {
         document.getElementById('sys-status').innerText = "Selection Cleared";
     }
 
-    async function checkAlerts() {
-        try {
-            const res = await fetch(`${API}/alerts`);
-            const alerts = await res.json();
-            const alertBox = document.getElementById('alert-box');
-            if(alerts && alerts.length > 0) {
+/* --- REPLACE checkAlerts() FUNCTION --- */
+let lastAlertHash = ""; // Global variable to track alert changes
+
+async function checkAlerts() {
+    try {
+        const res = await fetch(`${API}/alerts`);
+        const alerts = await res.json();
+        const alertBox = document.getElementById('alert-box');
+        
+        if (alerts && alerts.length > 0) {
+            // Create a unique string representing the current state of alerts
+            const fullAlertText = alerts.map(a => `${a.title}: ${a.message}`).join(' | ');
+            const currentHash = fullAlertText;
+
+            // ONLY update the DOM if the alerts have actually changed
+            if (currentHash !== lastAlertHash) {
                 alertBox.style.display = 'block';
-                alertBox.innerText = `⚠️ ${alerts[0].title}: ${alerts[0].message}`;
+                alertBox.innerHTML = `<div id="alert-inner">⚠️ ${fullAlertText}</div>`;
                 alertBox.title = alerts.map(a => `${a.title}: ${a.message}`).join('\n\n');
-            } else {
-                alertBox.style.display = 'none';
+                lastAlertHash = currentHash;
             }
-        } catch(e) {}
-    }
-
-    function updateMarker(id, route, lat, lon, heading, pattern, pax, speed, adherence, isStopped, percentCap, isTimePoint, isLR) {
-        if (!busTrails[id]) busTrails[id] = L.polyline([], { color: '#630031', weight: 4, opacity: 0.25 }).addTo(map);
-        const trail = busTrails[id];
-        trail.addLatLng([lat, lon]);
-        if (trail.getLatLngs().length > 15) trail.getLatLngs().shift();
-
-        const jitterAmount = 0.00003;
-        const idNum = parseInt(id) || 0;
-        const jLat = lat + ( ((idNum % 3) - 1) * jitterAmount );
-        const jLon = lon + ( ((idNum % 2) - 0.5) * jitterAmount * 2 );
-
-        const generateIconHtml = (currentRoute) => {
-            const electricHtml = isElectric(id) ? `<div class="electric-badge">⚡</div>` : '';
-            let topBadgeHtml = '';
-            if (isTimePoint && isStopped) topBadgeHtml = `<div class="top-badge bdg-hold">HOLD</div>`;
-            else if (percentCap >= 90) topBadgeHtml = `<div class="top-badge bdg-full">FULL</div>`;
-            else if (percentCap >= 75) topBadgeHtml = `<div class="top-badge bdg-busy">BUSY</div>`;
-
-            const lrClass = isLR ? 'lr-border' : '';
-            let bodyHtml = isAccordion(id) ?
-                `<div class="acc-container"><div class="bus-pointer"></div><div class="bus-body-base acc-front ${lrClass}">${currentRoute}</div><div class="acc-joint"></div><div class="bus-body-base acc-rear ${lrClass}"></div></div>` :
-                `<div class="bus-body-base std-bus ${lrClass}"><div class="bus-pointer"></div>${currentRoute}</div>`;
-
-            return `<div class="bus-rotate-wrap" style="transform: rotate(${heading}deg)">${bodyHtml}${electricHtml}${topBadgeHtml}</div>`;
-        };
-
-        const status = getScheduleStatus(adherence);
-
-        if (busMarkers[id]) {
-            const m = busMarkers[id];
-           
-            m.data = { speed, percentCap, adherence };
-            m.heading = heading;
-            m.busId = id;        
-
-            const newIconHtml = generateIconHtml(route);
-            if (m.currentRoute !== route || m.prevTopBadge !== (isTimePoint && isStopped) || m.prevCap !== percentCap) {
-                 m.setIcon(L.divIcon({ className: 'bus-icon-container', html: newIconHtml, iconSize: [60, 60], iconAnchor: [30, 30] }));
-                 m.currentRoute = route;
-                 m.prevTopBadge = (isTimePoint && isStopped);
-                 m.prevCap = percentCap;
-            }
-            m.setLatLng([jLat, jLon]);
-            const wrapper = m.getElement().querySelector('.bus-rotate-wrap');
-            if (wrapper) wrapper.style.transform = `rotate(${heading}deg)`;
-           
-            if (id === selectedBusId) m.setZIndexOffset(1000); else m.setZIndexOffset(0);
-
-            m.setPopupContent(getPopup(id, route, pattern, pax, speed, status, isStopped, percentCap, isTimePoint, isLR));
         } else {
-            const m = L.marker([jLat, jLon], {
-                icon: L.divIcon({ className: 'bus-icon-container', html: generateIconHtml(route), iconSize: [60, 60], iconAnchor: [30, 30] }),
-                riseOnHover: true
-            }).addTo(map);
-
-            m.on('mouseover', function() { this.setZIndexOffset(10000); });
-            m.on('mouseout', function() { if (this.busId !== selectedBusId) this.setZIndexOffset(0); });
-           
-            m.bindPopup(getPopup(id, route, pattern, pax, speed, status, isStopped, percentCap, isTimePoint, isLR));
-            m.on('click', () => selectBus(id, route, pattern));
-           
-            m.currentRoute = route;
-            m.prevTopBadge = (isTimePoint && isStopped);
-            m.data = { speed, percentCap, adherence };
-            m.heading = heading;
-            m.busId = id;
-            busMarkers[id] = m;
+            // Clear if no alerts exist
+            if (lastAlertHash !== "") {
+                alertBox.style.display = 'none';
+                alertBox.innerHTML = "";
+                lastAlertHash = "";
+            }
         }
+    } catch(e) {
+        console.error("Alert check failed", e);
     }
+}
 
+    // --- VISUALS ---
+    /* --- REPLACE ENTIRE updateMarker FUNCTION --- */
+function updateMarker(id, route, lat, lon, heading, pattern, pax, speed, adherence, isStopped, percentCap, isTimePoint, isLR, versionTs) {
+    if (!busTrails[id]) busTrails[id] = L.polyline([], { color: getRouteColor(route), weight: 4, opacity: 0.25 }).addTo(map);
+    const trail = busTrails[id];
+    trail.addLatLng([lat, lon]);
+    if (trail.getLatLngs().length > 15) trail.getLatLngs().shift();
+
+    const jitterAmount = 0.00003;
+    const idNum = parseInt(id) || 0;
+    const jLat = lat + ( ((idNum % 3) - 1) * jitterAmount );
+    const jLon = lon + ( ((idNum % 2) - 0.5) * jitterAmount * 2 );
+
+    const generateIconHtml = (currentRoute) => {
+        const color = getRouteColor(currentRoute);
+        const electricHtml = isElectric(id) ? `<div class="electric-badge">⚡</div>` : '';
+        let topBadgeHtml = '';
+        if (isTimePoint && isStopped) topBadgeHtml = `<div class="top-badge bdg-hold">HOLD</div>`;
+        else if (percentCap >= 90) topBadgeHtml = `<div class="top-badge bdg-full">FULL</div>`;
+        else if (percentCap >= 75) topBadgeHtml = `<div class="top-badge bdg-busy">BUSY</div>`;
+
+        const lrClass = isLR ? 'lr-border' : '';
+        let bodyHtml = isAccordion(id) ?
+            `<div class="acc-container"><div class="bus-pointer" style="border-bottom-color:${color}"></div><div class="bus-body-base acc-front ${lrClass}" style="border-color:${color}; background: #630031;">${currentRoute}</div><div class="acc-joint"></div><div class="bus-body-base acc-rear ${lrClass}" style="border-color:${color}; background: #630031;"></div></div>` :
+            `<div class="bus-body-base std-bus ${lrClass}" style="border-color:${color}; background: #630031;"><div class="bus-pointer" style="border-bottom-color:${color}"></div>${currentRoute}</div>`;
+
+        return `<div class="bus-rotate-wrap" style="transform: rotate(${heading}deg)">${bodyHtml}${electricHtml}${topBadgeHtml}</div>`;
+    };
+
+    // Use the version timestamp from the API to drive the live counter [cite: 324, 507]
+    const popupTimestamp = versionTs || Date.now();
+const updateTs = versionTs || Date.now();
+    if (busMarkers[id]) {
+        const m = busMarkers[id];
+        m.predictionData = {
+        lastLat: lat, lastLon: lon, heading: heading, 
+        speed: speed, lastUpdate: Date.now()
+    };
+    
+        m.data = { speed, percentCap, adherence, version: versionTs };
+        m.heading = heading;
+        
+        const newIconHtml = generateIconHtml(route);
+        if (m.currentRoute !== route || m.prevTopBadge !== (isTimePoint && isStopped) || m.prevCap !== percentCap) {
+             m.setIcon(L.divIcon({ className: 'bus-icon-container', html: newIconHtml, iconSize: [60, 60], iconAnchor: [30, 30] }));
+             m.currentRoute = route;
+             m.prevTopBadge = (isTimePoint && isStopped);
+             m.prevCap = percentCap;
+        }
+        m.setLatLng([jLat, jLon]);
+        const wrapper = m.getElement()?.querySelector('.bus-rotate-wrap');
+        if (wrapper) wrapper.style.transform = `rotate(${heading}deg)`;
+        
+        if (id === selectedBusId) m.setZIndexOffset(1000); else m.setZIndexOffset(0);
+
+        // Update the popup content immediately if it's open to refresh the live counter [cite: 498]
+        const popupHtml = getPopup(id, route, pattern, pax, speed, adherence, isStopped, percentCap, isTimePoint, popupTimestamp, lat, lon);
+        m.setPopupContent(popupHtml);
+    } else {
+        const m = L.marker([jLat, jLon], {
+            icon: L.divIcon({ className: 'bus-icon-container', html: generateIconHtml(route), iconSize: [60, 60], iconAnchor: [30, 30] }),
+            riseOnHover: true
+        }).addTo(map);
+
+        m.on('mouseover', function() { this.setZIndexOffset(10000); });
+        m.on('mouseout', function() { if (this.busId !== selectedBusId) this.setZIndexOffset(0); });
+        
+        // Bind the popup with specific options for stability and isolation [cite: 361, 486, 514]
+        m.bindPopup(getPopup(id, route, pattern, pax, speed, adherence, isStopped, percentCap, isTimePoint, popupTimestamp, lat, lon), { 
+            className: 'bus-popup', 
+            autoPan: false,
+            offset: [0, -10] // Positions popup slightly higher above the bus [cite: 520]
+        });
+
+        m.on('click', () => selectBus(id, route, pattern));
+        
+        m.currentRoute = route;
+        m.prevTopBadge = (isTimePoint && isStopped);
+        m.data = { speed, percentCap, adherence, version: versionTs };
+        m.heading = heading;
+        m.busId = id;
+        busMarkers[id] = m;
+    }
+}
+
+    
+
+    // --- PREDICTION ENGINE ---
 function predictNextDeparture(cachedSchedule, stopLat, stopLon, currentRouteId, stopCode, routeShape, allStops, currentStopSequence) {
     const now = new Date();
     
+    // --- KEEPING YOUR DIAGNOSTICS ---
     console.groupCollapsed(`🔍 PREDICTING STOP #${stopCode} (${currentRouteId})`);
     
     if (!cachedSchedule || cachedSchedule.length === 0) {
@@ -445,6 +1055,7 @@ function predictNextDeparture(cachedSchedule, stopLat, stopLon, currentRouteId, 
     const activeBuses = [];
     const showAllRoutes = allRoutesMode[stopCode] || false;
     
+    // --- KEEPING YOUR ROBUST FILTERING ---
     Object.values(busMarkers).forEach(m => {
         if (!showAllRoutes && m.currentRoute !== currentRouteId) return;
 
@@ -491,7 +1102,9 @@ function predictNextDeparture(cachedSchedule, stopLat, stopLon, currentRouteId, 
     let bestBus = null;
     let bestMatch = null;
     
+    // --- KEEPING YOUR MATCHING LOOP ---
     for (const bus of validBuses) {
+        // Pass routeShape and activeBuses to the physics engine
         const seconds = calculatePrecisionETA(bus, stopLat, stopLon, currentStopSequence, bus.stopSequence, routeShape, activeBuses);
         
         if (seconds === null || seconds < 0) continue;
@@ -543,7 +1156,6 @@ function predictNextDeparture(cachedSchedule, stopLat, stopLon, currentRouteId, 
 
     if (!bestMatch.isTimecheck) {
         console.log("⚡ Applying -20s offset to prediction");
-
         bestBus.seconds = Math.max(0, bestBus.seconds - 20);
     }
 
@@ -575,11 +1187,9 @@ function predictNextDeparture(cachedSchedule, stopLat, stopLon, currentRouteId, 
         console.log("👉 Result: ARRIVED/HOLDING");
         console.groupEnd();
 
-        // Special handling for Timechecks
         if (bestMatch.isTimecheck) {
             const holdSeconds = (matchedScheduledTime - now) / 1000;
             if (holdSeconds > 0) {
-                // **UPDATED RETURN TYPE**
                 return { 
                     type: "timecheck_holding", 
                     seconds: holdSeconds, 
@@ -589,7 +1199,6 @@ function predictNextDeparture(cachedSchedule, stopLat, stopLon, currentRouteId, 
                     route: bestBus.route 
                 };
             } else if (holdSeconds > -45) {
-                // **UPDATED RETURN TYPE**
                 return { 
                     type: "timecheck_departing", 
                     busId: bestBus.id, 
@@ -608,8 +1217,6 @@ function predictNextDeparture(cachedSchedule, stopLat, stopLon, currentRouteId, 
         };
     }
 
-    // 2. EN ROUTE / APPROACHING
-    // We unify these so the Countdown Timer logic in updateDisplay handles the visuals
     console.log("👉 Result: EN ROUTE/APPROACHING");
     console.groupEnd();
     
@@ -617,7 +1224,6 @@ function predictNextDeparture(cachedSchedule, stopLat, stopLon, currentRouteId, 
     if (adherenceMinutes > 0.5) { status = "late"; statusText = `~${Math.round(adherenceMinutes)}m LATE`; }
     else if (adherenceMinutes < -0.5) { status = "early"; statusText = `~${Math.abs(Math.round(adherenceMinutes))}m EARLY`; }
 
-    // If extremely close, force "approaching" type for safety, but data is same
     const type = (bestBus.seconds < 60) ? "approaching" : "en_route";
 
     return { 
@@ -640,6 +1246,9 @@ function predictNextDeparture(cachedSchedule, stopLat, stopLon, currentRouteId, 
         currentSelectedRoute = route;
         if (liveEtaTimer) clearInterval(liveEtaTimer);
 
+        document.getElementById('sidebar').classList.add('open');
+    hapticFeedback('medium');
+
         shapeLayer.clearLayers();
         stopLayer.clearLayers();
        
@@ -649,7 +1258,7 @@ function predictNextDeparture(cachedSchedule, stopLat, stopLon, currentRouteId, 
             map.flyTo(busMarkers[id].getLatLng(), 16, { animate: true, duration: 0.5 });
         }
 
-        document.getElementById('sys-status').innerText = `Loading Precision Route...`;
+        document.getElementById('sys-status').innerText = `Loading Route...`;
 
         try {
             const [shapeRes, _] = await Promise.all([
@@ -659,22 +1268,29 @@ function predictNextDeparture(cachedSchedule, stopLat, stopLon, currentRouteId, 
             const json = await shapeRes.json();
            
             if (json.shape && json.shape.length > 0) {
-                L.polyline(json.shape, { color: '#630031', weight: 5, opacity: 0.8, lineJoin: 'round' }).addTo(shapeLayer);
+                L.polyline(json.shape, { color: getRouteColor(route), weight: 5, opacity: 0.8, lineJoin: 'round' }).addTo(shapeLayer);
             }
 
-            if (json.stops && json.stops.length > 0) {
+if (json.stops && json.stops.length > 0) {
                 json.stops.forEach(s => {
-                    const isTC = (s.isTimePoint === "Y" || s.isTimePoint === true || s.isTimecheck === true || s.timepoint === true);
-        
-                    const nodeClass = isTC ? 'stop-node timecheck-node' : 'stop-node';
+                    const isTC = (s.isTimePoint === "Y" || s.isTimecheck === true);
                     
+                    // Initial marker creation defaults to the primary route color
                     const icon = L.divIcon({ 
-                        className: nodeClass, 
-                        iconSize: [14, 14],
-                        html: isTC ? '🕒' : '' 
+                        className: isTC ? 'stop-node timecheck-node' : 'stop-node',
+                        iconSize: [20, 20],
+                        html: `<div class="stop-icon" title="${s.name}">
+                                <div class="stop-center">${isTC ? "🕒" : ""}</div>
+                                <div class="stop-badges"><span class="stop-badge" style="background:${getRouteColor(route)}"></span></div>
+                               </div>`
                     });
 
                     const m = L.marker([s.lat, s.lon], { icon: icon }).addTo(stopLayer);
+
+                    // PROACTIVE LOADING: Triggers background fetch for all servicing routes immediately [cite: 131, 141]
+                    autoUpdateStopIcon(m, s.code, s.name, isTC);
+
+                    // ... Existing m.bindPopup and popupopen logic continues below ...
 
                     m.bindPopup(`
     <div style="font-family:'Inter',sans-serif; min-width:210px;">
@@ -686,16 +1302,9 @@ function predictNextDeparture(cachedSchedule, stopLat, stopLon, currentRouteId, 
             <div id="eta-timer-${s.code}" style="font-size:26px; font-weight:800; color:#2c3e50; margin:4px 0; font-variant-numeric: tabular-nums;">--:--</div>
             <div id="eta-sub-${s.code}" style="font-size:11px; color:#630031; font-weight:600;">Connecting...</div>
         </div>
-       
-        <div style="margin-top: 10px; padding: 8px; background: #f8f9fa; border-radius: 6px;">
-            <label style="display: flex; align-items: center; cursor: pointer; font-size: 12px; color: #555;">
-                <input type="checkbox" id="allroutes-${s.code}" onchange="toggleAllRoutes('${s.code}', '${route}')" style="margin-right: 6px;">
-                <span>Show all routes at this stop</span>
-            </label>
-        </div>
         
         <button class="stop-popup-btn" onclick="checkDepartures('${s.code}', '${route}', this)">
-            Station Board (All Routes)
+            View Schedule (All Routes)
         </button>
     </div>
 `);
@@ -708,66 +1317,62 @@ function predictNextDeparture(cachedSchedule, stopLat, stopLon, currentRouteId, 
                         
                         let cachedSchedule = [];
                         let currentStopSequence = -1;
-                        let previousFirstDeparture = null; // Track schedule changes
-                        
-                        // Function to fetch fresh schedule data
+
                         const fetchSchedule = async () => {
-    try {
-        const res = await fetch(`${API}/departures?code=${s.code}`);
-        const data = await res.json();
-        
-        if (json.stops) {
-            const stopIndex = json.stops.findIndex(st => st.code === s.code);
-            currentStopSequence = stopIndex;
-        }
-        
-        // NEW: Check if all-routes mode is enabled
-        const showAllRoutes = allRoutesMode[s.code] || false;
-        
-        const newSchedule = data
-            .filter(d => showAllRoutes || d.route === route) // CHANGED: conditional filter
-            .map((d, idx, arr) => {
-                const today = new Date();
-                const timeParts = d.time.split("T")[1].split(":"); 
-                const schedDate = new Date();
-                schedDate.setHours(parseInt(timeParts[0]), parseInt(timeParts[1]), 0, 0);
-                
-                if (schedDate.getHours() < 4 && today.getHours() > 20) {
-                    schedDate.setDate(schedDate.getDate() + 1);
-                }
+                            try {
+                                const res = await fetch(`${API}/departures?code=${s.code}`);
+                                const data = await res.json();
+                                
+                                // NEW: Update the map marker icon with ALL routes found at this stop
+                                const allRoutesAtThisStop = [...new Set(data.map(d => d.route))];
+                                if (allRoutesAtThisStop.length > 0) {
+                                    let newBadgesHtml = '';
+                                    allRoutesAtThisStop.slice(0, 5).forEach(rid => {
+                                        newBadgesHtml += `<span class="stop-badge" style="background:${getRouteColor(rid)}"></span>`;
+                                    });
+                                    
+                                    // Dynamically update the marker's HTML
+                                    const isTC = (s.isTimePoint === "Y" || s.isTimecheck === true);
+                                    const centerContent = isTC ? "🕒" : "";
+                                    m.getElement().innerHTML = `
+                                        <div class="stop-icon" title="${s.name}">
+                                            <div class="stop-center">${centerContent}</div>
+                                            <div class="stop-badges">${newBadgesHtml}</div>
+                                        </div>`;
+                                }
 
-                let prevTimecheckDeparture = null;
-                if (!isTC) {
-                    for (let i = idx - 1; i >= 0; i--) {
-                        if (arr[i].isTimecheck || data[i].isTimePoint === "Y") {
-                            const tcTime = new Date(arr[i].time);
-                            if (tcTime.getHours() < 4 && today.getHours() > 20) {
-                                tcTime.setDate(tcTime.getDate() + 1);
+                                if (json.stops) {
+                                    const stopIndex = json.stops.findIndex(st => st.code === s.code);
+                                    currentStopSequence = stopIndex;
+                                }
+                                
+                                const showAllRoutes = allRoutesMode[s.code] || false;
+                                const newSchedule = data
+                                    .filter(d => showAllRoutes || d.route === route)
+                                    .map((d, idx, arr) => {
+                                        const today = new Date();
+                                        const timeParts = d.time.split("T")[1].split(":"); 
+                                        const schedDate = new Date();
+                                        schedDate.setHours(parseInt(timeParts[0]), parseInt(timeParts[1]), 0, 0);
+                                        
+                                        if (schedDate.getHours() < 4 && today.getHours() > 20) {
+                                            schedDate.setDate(schedDate.getDate() + 1);
+                                        }
+
+                                        return { 
+                                            ...d, 
+                                            date: schedDate, 
+                                            isTimecheck: (s.isTimePoint === "Y"),
+                                            route: d.route 
+                                        };
+                                    })
+                                    .sort((a,b) => a.date - b.date);
+
+                                return newSchedule;
+                            } catch(e) { 
+                                return cachedSchedule; 
                             }
-                            prevTimecheckDeparture = tcTime;
-                            break;
-                        }
-                    }
-                }
-
-                return { 
-                    ...d, 
-                    date: schedDate, 
-                    isTimecheck: isTC,
-                    prevTimecheckDeparture: prevTimecheckDeparture,
-                    route: d.route // NEW: Include route info
-                };
-            })
-            .sort((a,b) => a.date - b.date);
-
-        const pastCutoff = new Date();
-        pastCutoff.setMinutes(pastCutoff.getMinutes() - 5);
-        return newSchedule.filter(s => s.date > pastCutoff);
-    } catch(e) { 
-        console.error("Schedule fetch failed", e); 
-        return cachedSchedule;
-    }
-};                        
+                        };                     
                         // Initial load
                         cachedSchedule = await fetchSchedule();
                         if (cachedSchedule.length > 0) {
@@ -801,25 +1406,20 @@ function predictNextDeparture(cachedSchedule, stopLat, stopLon, currentRouteId, 
     if (!p) { timerEl.innerText = "--"; return; }
 
     // --- 3. DYNAMIC COUNTDOWN CALCULATION ---
-    // We assume p.etaTime is the source of truth.
-    // We calculate seconds remaining RIGHT NOW, regardless of when data was fetched.
     let liveSeconds = 0;
     if (p.etaTime) {
         liveSeconds = (p.etaTime.getTime() - Date.now()) / 1000;
     } else if (p.seconds) {
         liveSeconds = p.seconds; // Fallback
     }
-    // Prevent negative numbers unless it's a specific "ago" state
     liveSeconds = Math.max(0, liveSeconds);
 
-    // Formatter Helpers
     const schedStr = p.scheduledTime ? p.scheduledTime.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}) : "";
     const min = Math.floor(liveSeconds / 60);
     const sec = Math.floor(liveSeconds % 60).toString().padStart(2, '0');
     
     // --- 4. RENDER STATES ---
 
-    // A. END OF SERVICE
     if (p.type === "end_of_service") {
         boxEl.style.background = "#f8f9fa"; boxEl.style.border = "1px solid #ddd";
         lblEl.innerHTML = `<span style="color:#d32f2f; font-weight:800;">SERVICE ENDED</span>`;
@@ -828,7 +1428,6 @@ function predictNextDeparture(cachedSchedule, stopLat, stopLon, currentRouteId, 
         return;
     }
 
-    // B. TIMECHECK SCREEN (Dedicated UI)
     if (p.type === "timecheck_holding" || p.type === "timecheck_departing") {
         boxEl.style.background = "#2c3e50"; // Dark Blue Theme
         boxEl.style.border = "none";
@@ -837,20 +1436,17 @@ function predictNextDeparture(cachedSchedule, stopLat, stopLon, currentRouteId, 
         lblEl.innerHTML = `<span style="color:#bdc3c7;">TIMECHECK STOP</span>`;
         
         if (p.type === "timecheck_holding") {
-             // Show Countdown to Departure
              timerEl.style.color = "white";
              timerEl.innerText = `Departs in ${min}:${sec}`;
              subEl.innerHTML = `<span style="color:#ecf0f1;">Bus ${p.busId} is holding until ${schedStr}</span>`;
         } else {
-             // Departing Now
-             timerEl.style.color = "#e74c3c"; // Red warning
+
              timerEl.innerHTML = "DEPARTING NOW";
              subEl.innerHTML = `<span style="color:#ecf0f1;">Bus ${p.busId} is leaving</span>`;
         }
         return;
     }
 
-    // C. ARRIVED
     if (p.type === "arrived") {
         boxEl.style.background = "#630031"; boxEl.style.border = "none";
         lblEl.innerHTML = `<span style="color:white;">CURRENTLY AT STOP</span>`;
@@ -859,16 +1455,19 @@ function predictNextDeparture(cachedSchedule, stopLat, stopLon, currentRouteId, 
         return;
     }
 
-    // D. LIVE TRACKING (En Route / Approaching)
-    // This is the "Always Est. Arrival" screen
-    if (p.type === "en_route" || p.type === "approaching") {
-        const isApproaching = (liveSeconds < 60);
-        
-        boxEl.style.background = isApproaching ? "#fff" : "#fff";
-        boxEl.style.border = isApproaching ? "2px solid #630031" : "1px solid #ddd"; // Thick border if close
-        boxEl.style.color = "#333";
+// --- UPDATE in updateDisplay() ---
+if (p.type === "en_route" || p.type === "approaching") {
+    const isApproaching = (liveSeconds < 60);
+    const routeColor = getRouteColor(p.route); // [cite: 143]
+    
+    boxEl.style.background = "#fff";
+    // ADDED: Professional left-border accent for the main ETA card 
+    boxEl.style.border = "1px solid #e0e6ed";
+    boxEl.style.borderLeft = `6px solid ${routeColor}`; 
+    boxEl.style.color = "#333";
 
-        lblEl.innerHTML = `EST. DEPARTURE <span style="color:#666;">${p.etaTime.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'})}</span>`;
+    lblEl.innerHTML = `EST. DEPARTURE <span style="color:#64748b;">${p.etaTime.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'})}</span>`;
+    // ... rest of logic
         
         // THE COUNTDOWN
         if (liveSeconds < 60) {
@@ -877,20 +1476,25 @@ function predictNextDeparture(cachedSchedule, stopLat, stopLon, currentRouteId, 
             timerEl.innerText = `${min} min`;
         }
         
-        // Status Badge
         const statusClass = (p.status === "late") ? "late" : (p.status === "early") ? "early" : "ontime";
-        const routeBadge = p.route ? `<span style="background: var(--maroon); color: white; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: bold; margin-right: 4px;">${p.route}</span>` : '';
+        const routeBadge = p.route ? `<span style="background: ${getRouteColor(p.route)}; color: white; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: bold; margin-right: 4px;">${p.route}</span>` : '';
         
+let cleanDest = p.dest.replace(new RegExp('^' + p.route, 'i'), '').trim();
+
+// 2. Expand the abbreviations
+cleanDest = cleanDest
+    .replace(/\bOB\b/g, 'Outbound')
+    .replace(/\bIB\b/g, 'Inbound')
+    .replace(/\bLR\b/g, 'Last Run');
+
         subEl.innerHTML = `
-            <div style="margin-top:2px;">${routeBadge} ${p.dest}</div>
+            <div style="margin-top:2px;">${routeBadge} ${cleanDest ? '' + cleanDest : ''}</div>
             <div style="margin-top:4px; font-size:11px;">
-                <span class="tag ${statusClass}">${p.statusText}</span>
             </div>
         `;
         return;
     }
 
-    // E. PLANNED (Fallback - only if NO BUS exists)
     boxEl.style.background = "#fff"; boxEl.style.border = "1px solid #ddd";
     lblEl.innerHTML = `NEXT SCHEDULED`;
     timerEl.innerText = schedStr;
@@ -924,10 +1528,19 @@ function predictNextDeparture(cachedSchedule, stopLat, stopLon, currentRouteId, 
             }
             if (busMarkers[id]) busMarkers[id].openPopup();
         } catch(e) { console.error(e); }
+
+setTimeout(() => {
+        const activeItem = document.querySelector('.bus-item.selected');
+        if (activeItem) {
+            activeItem.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    }, 500);
+
     }
 
+    
     async function checkDepartures(code, route, btn) {
-        btn.innerText = "Checking Station Board...";
+        btn.innerText = "Checking Schedules...";
         btn.disabled = true;
         btn.style.opacity = "0.7";
         btn.style.cursor = "wait";
@@ -941,25 +1554,38 @@ function predictNextDeparture(cachedSchedule, stopLat, stopLon, currentRouteId, 
 
                 let listHtml = `<div style="margin-top:8px; border-top:1px solid #eee; padding-top:4px; max-height:200px; overflow-y:auto;">`;
                
-                data.forEach(d => {
-                    const dateObj = new Date(d.time);
-                    const timeStr = dateObj.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-                   
-                    const isSelected = (d.route === route);
-                    const borderStyle = isSelected ? "border-left: 3px solid #630031;" : "border-left: 3px solid #ccc;";
-                    const bgStyle = isSelected ? "background:#f0f0f5;" : "background:#f8f9fa;";
+// --- SEARCH AND REPLACE in checkDepartures(code, route, btn) ---
+data.forEach(d => {
+    const dateObj = new Date(d.time);
+    const timeStr = dateObj.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    
+    const isSelected = (d.route === route);
+    // NEW: Use the dynamic route color for the left accent [cite: 143]
+    const accentColor = getRouteColor(d.route);
+    const borderStyle = `border-left: 4px solid ${accentColor};`;
+    const bgStyle = isSelected ? "background:#f0f0f5;" : "background:#fdfdfd;";
 
-                    listHtml += `
-                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; padding:6px; border-radius:4px; ${bgStyle} ${borderStyle}">
-                            <div style="display:flex; flex-direction:column; max-width:75%;">
-                                <div style="display:flex; align-items:center;">
-                                    <span style="font-weight:800; color:#333; font-size:11px; margin-right:5px;">${d.route}</span>
-                                    <span style="font-size:10px; color:#555; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">to ${d.dest}</span>
-                                </div>
-                            </div>
-                            <span style="font-weight:700; font-size:12px; color:#2c3e50;">${timeStr}</span>
-                        </div>`;
-                });
+let cleanDest = d.dest.replace(new RegExp('^' + d.route, 'i'), '').trim();
+
+// 2. Expand the abbreviations
+cleanDest = cleanDest
+    .replace(/\bOB\b/g, 'Outbound')
+    .replace(/\bIB\b/g, 'Inbound')
+    .replace(/\bLR\b/g, 'Last Run');
+
+    listHtml += `
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; padding:8px; border-radius:4px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); ${bgStyle} ${borderStyle}">
+            <div style="display:flex; flex-direction:column; max-width:75%;">
+                <div style="display:flex; align-items:center;">
+                    <span style="font-weight:800; color:#333; font-size:11px; margin-right:5px;">${d.route}</span>
+    <span style="font-size:10px; color:#555; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+        ${cleanDest ? '' + cleanDest : ''}
+    </span>
+                </div>
+            </div>
+            <span style="font-weight:700; font-size:12px; color:#2c3e50;">${timeStr}</span>
+        </div>`;
+});
                
                 listHtml += `</div>`;
                 btn.outerHTML = listHtml;
@@ -1000,9 +1626,7 @@ function predictNextDeparture(cachedSchedule, stopLat, stopLon, currentRouteId, 
     }
 
     // ✅ ADVANCED ETA: Considers stops remaining, load, and traffic
-// ✅ IMPROVED PHYSICS ENGINE
 function calculatePrecisionETA(bus, stopLat, stopLon, targetStopSeq, busStopSeq, routeShape, allActiveBuses) {
-    // 1. DATA SAFETY
     if (!bus || typeof bus.lat !== 'number' || typeof bus.lon !== 'number') return null;
 
    let roadDist;
@@ -1015,79 +1639,61 @@ function calculatePrecisionETA(bus, stopLat, stopLon, targetStopSeq, busStopSeq,
          console.log("FALLING BACK; NO ROUTE PATH FOR DISTANCE");
     }
 
-    // 3. HUMAN FACTOR SPEEDS
     let currentSpeedMph = Number(bus.speed) || 0; 
     let currentSpeedMps = currentSpeedMph * 0.44704;
-    let effectiveSpeed = 6.7; // Base 15mph
+    let effectiveSpeed = 6.7;
     
-    // --- NEW: THE "LATE DRIVER" BONUS ---
-    // If the bus is significantly late (> 5 mins), assume the driver 
-    // is skipping breaks and accelerating faster to catch up.
     let adherence = Number(bus.adherence) || 0;
     let urgencyMultiplier = 1.0;
     
-    if (adherence > 5) { // 5+ mins late
-        urgencyMultiplier = 1.15; // 15% faster effective speed
-    } else if (adherence < -2) { // 2+ mins early
-        urgencyMultiplier = 0.85; // Driver will drag feet to not burn time
+    if (adherence > 5) {
+        urgencyMultiplier = 1.15;
+    } else if (adherence < -2) {
+        urgencyMultiplier = 0.85;
     }
 
-    // --- NEW: RUSH HOUR DRAG ---
-    // Traffic is naturally 20% slower during PM peak
     const now = new Date();
     const hour = now.getHours();
     const isWeekend = (now.getDay() === 0 || now.getDay() === 6);
     let trafficDrag = 1.0;
 
     if (!isWeekend && hour >= 16 && hour <= 18) {
-        trafficDrag = 0.8; // Rush hour speed reduction
+        trafficDrag = 0.8;
     }
 
-    // CALCULATE SPEED
     if (currentSpeedMph > 35) {
-        effectiveSpeed = currentSpeedMps; // Highway mode
+        effectiveSpeed = currentSpeedMps;
     } else if (currentSpeedMph > 5) {
-        // Weighted average + Urgency
         effectiveSpeed = ((currentSpeedMps * 0.7) + (6.7 * 0.3)) * urgencyMultiplier * trafficDrag;
     } else {
-        // Stopped logic
         effectiveSpeed = 6.7 * trafficDrag; 
     }
 
     let seconds = (roadDist / effectiveSpeed);
 
-    // 4. DYNAMIC STOP PENALTIES (The "Per Stop" Logic)
     if (typeof targetStopSeq === 'number' && typeof busStopSeq === 'number' && 
         targetStopSeq >= 0 && busStopSeq >= 0 && targetStopSeq > busStopSeq) {
         
         const stopsRemaining = targetStopSeq - busStopSeq;
         
-        // --- NEW: CROWDED DWELL TIME ---
-        // How long does the bus sit at a stop?
-        // Empty bus = 10s (Door open, door close)
-        // Full bus  = 25s (People shuffling, slow boarding)
         let percentCap = Number(bus.percentCap) || 0;
         
-        let dwellTimePerStop = 12; // Base seconds
+        let dwellTimePerStop = 12;
         
-        if (percentCap > 90) dwellTimePerStop = 25;      // Sardine can
-        else if (percentCap > 50) dwellTimePerStop = 18; // Busy
-        else if (percentCap < 10) dwellTimePerStop = 8;  // Ghost bus (likely skips stops)
+        if (percentCap > 90) dwellTimePerStop = 25;
+        else if (percentCap > 50) dwellTimePerStop = 18;
+        else if (percentCap < 10) dwellTimePerStop = 8;
 
-        // Apply penalty PER STOP
         seconds += (stopsRemaining * dwellTimePerStop);
     }
 
-// --- NEW: THE "BUS BUNCHING" BONUS ---
-    // Check if this bus is trailing another bus of the same route closely.
     let isTrailing = false;
     if (allActiveBuses) {
-        // Find leader
         const leader = allActiveBuses.find(b => 
             b.id !== bus.id && 
             b.route === bus.route && 
             b.stopSequence > busStopSeq && 
-            b.stopSequence < busStopSeq + 4 // Just ahead
+            b.stopSequence < busStopSeq + 4
         );
         if (leader) isTrailing = true;
     }
@@ -1102,13 +1708,10 @@ let intersectionPenalty = 0;
         const stopsPerMile = stopsToPass / distMiles;
         
         if (stopsPerMile > 8) {
-            // Dense city blocks (lots of lights/signs)
-            // Add 10 seconds of "traffic light time" per mile
             intersectionPenalty = distMiles * 45; 
         }
     }
 
-    // 4. DWELL TIME (With Bunching Logic)
     if (targetStopSeq > busStopSeq) {
         const stopsRemaining = targetStopSeq - busStopSeq;
         let percentCap = Number(bus.percentCap) || 0;
@@ -1118,11 +1721,8 @@ let intersectionPenalty = 0;
         else if (percentCap > 50) dwellTimePerStop = 18; 
         else if (percentCap < 10) dwellTimePerStop = 8;  
 
-        // THE BUNCHING EFFECT:
-        // If this bus is trailing a leader, the leader is picking up the pax.
-        // This bus will likely skip stops or dwell for shorter times.
         if (isTrailing) {
-            dwellTimePerStop = dwellTimePerStop * 0.4; // 60% reduction in dwell time
+            dwellTimePerStop = dwellTimePerStop * 0.4;
             console.log(`Bus ${bus.id} is drafting/bunching - speeding up dwell times.`);
         }
 
@@ -1135,43 +1735,195 @@ let intersectionPenalty = 0;
     
     return Math.max(0, Math.round(seconds));
 }
-    // --- POPUP ---
-    function getPopup(id, route, pattern, pax, speed, status, isStopped, percentCap, isTimePoint, isLR) {
-        let statusHtml = '';
-        if (isTimePoint && isStopped) statusHtml = `<span class="tag hold">🕒 Time Check</span>`;
-        else if (isStopped) statusHtml = `<span class="tag late" style="background:#ffebee; color:#c62828;">🛑 At Stop</span>`;
-        else statusHtml = `<span class="tag early" style="background:#e8f5e9; color:#2e7d32;">🟢 Moving</span>`;
+function getPopup(busId, currentRoute, currentPattern, pax, rawSpeed, adherence, isStopped, percentCap, isTimePoint, timestamp, lat, lon) {
+    const routeColor = getRouteColor(currentRoute);
+    const logic = btOperationalLogic[currentRoute];
+    const speed = parseFloat(rawSpeed) || 0;
+    const now = new Date();
 
-        let capHtml = `${percentCap}%`;
-        if (percentCap >= 90) capHtml = `<span class="tag full">FULL (${percentCap}%)</span>`;
+let alertBanner = ""; 
+    let nextPatternDisplay = "Repeating Loop";
+    let bayNote = logic ? `Catch at ${logic.bay}` : "";
 
-        const spdCtx = getSpeedContext(speed);
-        const speedHtml = `<span class="stat-chip" style="color:${spdCtx.color}">${speed} mph</span>`;
+    // 1. SMART SPEED & PACE (Centered Speedometer Icon)
+    const paceColor = speed === 0 ? "#94a3b8" : (speed > 35 ? "#cf4420" : "#22c55e");
+    const displaySpeed = speed > 35 ? 35 + Math.floor(Math.random() * 2) : Math.round(speed);
+    const paceWidth = Math.min(100, (displaySpeed / 45) * 100);
 
-        let lrAlert = isLR ? `<div style="background:#000; color:red; text-align:center; font-weight:bold; margin-bottom:5px; border-radius:4px;">⚠️ LAST RUN OF NIGHT ⚠️</div>` : '';
+    // 2. LIVE TIMER: Absolute Time + Counter (Fixes Trillion Seconds Bug)
+    const updateMs = (timestamp > 1000000000000) ? timestamp : timestamp * 1000;
+    const timeStr = new Date(updateMs).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+    const secondsAgo = Math.max(0, Math.floor((Date.now() - updateMs) / 1000));
+    const timeLabel = `Updated at ${timeStr} (${secondsAgo}s ago)`;
 
-        return `
-            <div class="pop-h">Bus ${id}</div>
-            <div class="pop-b">
-                ${lrAlert}
-                <div class="pop-row"><span>Status:</span> ${statusHtml}</div>
-                <div class="pop-row"><span>Speed:</span> ${speedHtml}</div>
-                <div class="pop-row"><span>Load:</span> <span class="stat-chip">${pax} pax (${capHtml})</span></div>
-                <hr style="border:0; border-top:1px solid #eee; margin:8px 0;">
-                <div style="font-size:0.8rem; color:#666;">${pattern}</div>
-            </div>`;
+    // 3. LOAD SANITIZATION & GROUP ICON
+    const isDataErr = pax > 150; // Filter realistic capacity
+    const cleanPax = isDataErr ? "!" : pax;
+    const loadColor = (percentCap > 85 || isDataErr) ? "#d32f2f" : "#64748b";
+
+    // 4. STATUS & SPATIAL LOGIC
+    let status = isStopped ? (isTimePoint ? "Timecheck" : "At Stop") : "En Route";
+    let statusColor = isStopped ? routeColor : "#1565c0"; // Match route color at stops
+    
+    // Spatial Off-Route Detection (requires checkSpatialDistance helper)
+    if (typeof checkSpatialDistance === "function" && checkSpatialDistance(lat, lon)) {
+        status = "Off Route"; statusColor = "#d32f2f";
     }
+
+    // 5. ENHANCED TRANSITION LOGIC (BT FY26 Routecards)
+    const isLR = currentPattern.includes("LR");
+    const isGoingGarage = currentPattern.toLowerCase().includes("garage") || currentPattern.toLowerCase().includes("out of service");
+    
+const serviceInfo = getSpecificServiceNote(currentRoute, busId, currentPattern, inferredServiceLevel);
+
+if (serviceInfo.isEnding) {
+        if (serviceInfo.type === "ROUTE_END") {
+            nextPatternDisplay = "OUT OF SERVICE";
+            bayNote = "No more runs today.";
+            alertBanner = `<div class="pop-alert-banner banner-last-run">FINAL TRIP OF SERVICE</div>`;
+        } else {
+            nextPatternDisplay = "Ending Shift / Pulling In";
+            bayNote = "Route frequency decreasing.";
+            alertBanner = `<div class="pop-alert-banner banner-transition" style="background:#fff3e0; color:#e65100; border-color:#ffe0b2;">FREQUENCY DECREASING</div>`;
+        }
+    } else if (currentRoute === "CAS") {
+        nextPatternDisplay = currentPattern.includes("Orange") ? "CAS to Maroon Loop" : "CAS to Orange Loop";
+        bayNote = currentPattern.includes("Orange") ? "Catch at Maroon Bay 5" : "Catch at Orange Bay 14";
+    } else if (logic && logic.paired) {
+        nextPatternDisplay = `Switch to ${logic.next}`;
+        alertBanner = `<div class="pop-alert-banner banner-transition">🔄 Switches to ${logic.next} next</div>`;
+    }
+
+    if (isLR || isGoingGarage) {
+        nextPatternDisplay = "Ending Service";
+        bayNote = "Final run";
+    } else if (currentRoute === "CAS") {
+        nextPatternDisplay = currentPattern.includes("Orange") ? "CAS to Maroon Loop" : "CAS to Orange Loop";
+        bayNote = currentPattern.includes("Orange") ? "Catch at Maroon Bay 5" : "Catch at Orange Bay 14";
+        if (serviceInfo.type === "ROUTE_END") {
+            nextPatternDisplay = "OUT OF SERVICE";
+            bayNote = "No more runs today.";
+            alertBanner = `<div class="pop-alert-banner banner-last-run">FINAL TRIP OF SERVICE</div>`;
+        } 
+    } else if (logic && logic.paired) {
+        nextPatternDisplay = `Switch to ${logic.next}`;
+        if (serviceInfo.type === "ROUTE_END") {
+            nextPatternDisplay = "OUT OF SERVICE";
+            bayNote = "No more runs today.";
+            alertBanner = `<div class="pop-alert-banner banner-last-run">FINAL TRIP OF SERVICE</div>`;
+        } 
+    } else if (logic && logic.next === "HWC") {
+        // Only show transition if time is past the card's threshold (12:15 or 12:45)
+        if (now.getHours() > logic.tHour || (now.getHours() === logic.tHour && now.getMinutes() >= logic.tMin)) {
+            nextPatternDisplay = "Switching to HWC (Combined)";
+        }
+        if (serviceInfo.type === "ROUTE_END") {
+            nextPatternDisplay = "OUT OF SERVICE";
+            bayNote = "No more runs today.";
+            alertBanner = `<div class="pop-alert-banner banner-last-run">FINAL TRIP OF SERVICE</div>`;
+        } 
+    }
+
+    return `
+        <div class="pop-h" style="background:${routeColor}">${currentRoute} • Bus ${busId}</div>
+        <div class="pop-b">
+            ${alertBanner}
+            <div class="bus-grid">
+                <div class="bus-stat">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${paceColor}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M4.5 18a8.5 8.5 0 1 1 15 0"></path><path d="m12 14 4-4"></path><path d="M12 14a1 1 0 1 0 0 2 1 1 0 0 0 0-2Z"></path>
+                    </svg>
+                    <span class="stat-label">Speed</span>
+                    <span class="stat-value">${displaySpeed} <span style="font-size:9px">MPH</span></span>
+                    <div class="pace-gauge"><div class="pace-fill" style="width:${paceWidth}%; background:${paceColor}"></div></div>
+                </div>
+                <div class="bus-stat">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${loadColor}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                    </svg>
+                    <span class="stat-label">Load</span>
+                    <span class="stat-value" style="color:${loadColor}">${cleanPax} <span style="font-size:9px">PAX</span></span>
+                    <span style="font-size:9px; color:#94a3b8; font-weight:700;">${isDataErr ? 'Sensor Error' : percentCap + '% CAP'}</span>
+                </div>
+                <div class="bus-stat">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${statusColor}" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                    <span class="stat-label">Status</span>
+                    <span class="stat-value" style="color:${statusColor}; font-size:11px;">${status}</span>
+                </div>
+            </div>
+            <div style="background:#f8fafc; padding:12px; border-radius:10px; border:1px solid #e2e8f0; position:relative;">
+                <div style="margin-bottom:8px">
+                    <div style="font-size:9px; font-weight:800; color:#94a3b8; text-transform:uppercase;">Current Pattern</div>
+                    <div style="font-size:12px; color:#1e293b; font-weight:600;">${currentPattern}</div>
+                </div>
+                <div style="margin-bottom:4px">
+                    <div style="font-size:9px; font-weight:800; color:#94a3b8; text-transform:uppercase;">Next Expected</div>
+                    <div style="font-size:11px; color:#475569; font-weight:500;">${nextPatternDisplay}</div>
+                    <div style="font-size:10px; color:${routeColor}; font-weight:800;">${bayNote}</div>
+                </div>
+                <div style="font-size:9px; color:#94a3b8; margin-top:10px; text-align:right; font-weight:700;">${timeLabel}</div>
+            </div>
+        </div>`;
+}
+
+/* --- ADD TO <script> --- */
+/* --- REPLACE toggleSidebar --- */
+function toggleSidebar() {
+    sidebar.style.transform = ''; // Reset any drag positions
+    sidebar.classList.toggle('open');
+    hapticFeedback('medium');
+}
+
+// Auto-expand sidebar when a bus is selected for better UX
+const originalSelectBus = selectBus;
+selectBus = async function(id, route, patternName) {
+    document.getElementById('sidebar').classList.add('open');
+    return originalSelectBus(id, route, patternName);
+};
+
+// Spatial helper to check if bus is off the line
+function checkSpatialDistance(busLat, busLon) {
+    const routeLine = shapeLayer.getLayers()[0];
+    if (!routeLine) return false;
+    const busLatLng = L.latLng(busLat, busLon);
+    let minDistance = Infinity;
+    const points = routeLine.getLatLngs();
+    for (let i = 0; i < points.length; i++) {
+        const d = busLatLng.distanceTo(points[i]);
+        if (d < minDistance) minDistance = d;
+    }
+    return minDistance > 100; // Off-Route if > 120 meters from line
+}
+
+/* --- ADD TO <script> --- */
+function hapticFeedback(type = 'light') {
+    if (!window.navigator.vibrate) return;
+    
+    if (type === 'light') navigator.vibrate(10);
+    else if (type === 'medium') navigator.vibrate(20);
+    else if (type === 'warning') navigator.vibrate([30, 50, 30]);
+}
+
+// Integrate into your existing toggle functions:
+const originalToggleRoute = toggleRoute;
+toggleRoute = function(route) {
+    hapticFeedback('light');
+    return originalToggleRoute(route);
+};
+
+const originalToggleSidebar = toggleSidebar;
+toggleSidebar = function() {
+    hapticFeedback('medium');
+    return originalToggleSidebar();
+};
 
 // ✅ NEW GEOMETRY ENGINE: Calculates real distance along the polyline
 function getDistanceAlongRoute(shape, startLat, startLon, endLat, endLon) {
-    if (!shape || shape.length < 2) return getDistance(startLat, startLon, endLat, endLon) * 1.35; // Fallback
+    if (!shape || shape.length < 2) return getDistance(startLat, startLon, endLat, endLon) * 1.35;
 
-    // 1. Find the index of the route point closest to the BUS
     let busIdx = -1;
     let minBusDist = Infinity;
     
-    // Optimization: Don't search the whole shape if we know where we are, 
-    // but for safety we search all points to snap correctly.
     for (let i = 0; i < shape.length; i++) {
         const d = getDistance(startLat, startLon, shape[i][0], shape[i][1]);
         if (d < minBusDist) {
@@ -1180,7 +1932,6 @@ function getDistanceAlongRoute(shape, startLat, startLon, endLat, endLon) {
         }
     }
 
-    // 2. Find the index of the route point closest to the STOP
     let stopIdx = -1;
     let minStopDist = Infinity;
 
@@ -1194,22 +1945,16 @@ function getDistanceAlongRoute(shape, startLat, startLon, endLat, endLon) {
 
     if (busIdx === -1 || stopIdx === -1) return getDistance(startLat, startLon, endLat, endLon) * 1.35;
 
-    // 3. Sum the distance of the segments between them
     let totalMeters = 0;
 
     if (busIdx <= stopIdx) {
-        // Standard Case: Bus is before the stop on the line
         for (let i = busIdx; i < stopIdx; i++) {
             totalMeters += getDistance(shape[i][0], shape[i][1], shape[i+1][0], shape[i+1][1]);
         }
     } else {
-        // Loop Case: Bus is "after" the stop index, meaning it has to finish the loop
-        // and come back around (if it's a continuous loop route).
-        // A) Bus to End of Route
         for (let i = busIdx; i < shape.length - 1; i++) {
             totalMeters += getDistance(shape[i][0], shape[i][1], shape[i+1][0], shape[i+1][1]);
         }
-        // B) Start of Route to Stop
         for (let i = 0; i < stopIdx; i++) {
             totalMeters += getDistance(shape[i][0], shape[i][1], shape[i+1][0], shape[i+1][1]);
         }
@@ -1226,11 +1971,12 @@ function getDistanceAlongRoute(shape, startLat, startLon, endLat, endLon) {
             container.innerHTML = "";
             keys.forEach(r => {
                 const fullName = routeNames[r] || `Route ${r}`;
+                const color = getRouteColor(r);
                 
                 container.innerHTML += `
                     <div class="route-group" id="group-${r}">
                         <div class="route-header" onclick="toggleRoute('${r}')">
-                            <div class="r-badge">${r}</div>
+                            <div class="r-badge" style="background:${color}">${r}</div>
                             <div class="r-title">${fullName}</div>
                             <div class="r-count" id="count-${r}">0</div>
                         </div>
@@ -1282,6 +2028,66 @@ function getDistanceAlongRoute(shape, startLat, startLon, endLat, endLon) {
         }
     }
 
+    /* --- ADD TO <script> --- */
+const sidebar = document.getElementById('sidebar');
+const dragHandle = document.getElementById('drag-handle');
+const header = document.querySelector('.header');
+
+let startY = 0;
+let currentTranslateY = 0;
+let isDragging = false;
+
+// Thresholds for snapping
+const collapsedY = window.innerHeight - 130; // Matches your CSS calc
+const expandedY = 0;
+
+function handleDragStart(e) {
+    if (window.innerWidth >= 768) return; // Disable on desktop
+    isDragging = true;
+    startY = e.touches[0].clientY;
+    sidebar.classList.add('dragging');
+    hapticFeedback('light');
+}
+
+function handleDragMove(e) {
+    if (!isDragging) return;
+
+    const deltaY = e.touches[0].clientY - startY;
+    const isCurrentlyOpen = sidebar.classList.contains('open');
+    
+    // Calculate new position
+    let newTranslate = isCurrentlyOpen ? deltaY : (collapsedY + deltaY);
+
+    // Bounds: Don't let it pull too far up or down
+    if (newTranslate < 0) newTranslate = newTranslate * 0.2; // Rubber band effect
+    
+    sidebar.style.transform = `translateY(${newTranslate}px)`;
+    currentTranslateY = newTranslate;
+}
+
+function handleDragEnd() {
+    if (!isDragging) return;
+    isDragging = false;
+    sidebar.classList.remove('dragging');
+    sidebar.style.transform = ''; // Clear inline style to let CSS take over
+
+    // Snapping Logic
+    if (currentTranslateY < window.innerHeight * 0.6) {
+        sidebar.classList.add('open');
+        hapticFeedback('medium');
+    } else {
+        sidebar.classList.remove('open');
+        hapticFeedback('light');
+    }
+}
+
+// Attach listeners to both handle and header for easier grabbing
+[dragHandle, header].forEach(el => {
+    el.addEventListener('touchstart', handleDragStart, { passive: true });
+    el.addEventListener('touchmove', handleDragMove, { passive: true });
+    el.addEventListener('touchend', handleDragEnd);
+});
+
 async function toggleAllRoutes(stopCode, currentRoute) {
     allRoutesMode[stopCode] = document.getElementById(`allroutes-${stopCode}`).checked;
     
@@ -1307,12 +2113,33 @@ async function toggleAllRoutes(stopCode, currentRoute) {
     }
 }
 
+/* --- ADD TO BOTTOM OF SCRIPT --- */
+function predictBusMotion() {
+    const now = Date.now();
+    Object.values(busMarkers).forEach(m => {
+        if (!m.predictionData || m.predictionData.speed < 1) return;
+
+        const elapsed = (now - m.predictionData.lastUpdate) / 1000;
+        if (elapsed > 10) return; // Prevent "ghosting" if data is too old
+
+        const speedMps = m.predictionData.speed * 0.44704;
+        const distMeters = speedMps * elapsed;
+        const headingRad = (m.predictionData.heading - 90) * (Math.PI / 180);
+
+        // Calculate new predicted coordinates (Dead Reckoning)
+        const lat = m.predictionData.lastLat + (distMeters * Math.sin(headingRad)) / 111320;
+        const lon = m.predictionData.lastLon + (distMeters * Math.cos(headingRad)) / (111320 * Math.cos(m.predictionData.lastLat * Math.PI / 180));
+
+        m.setLatLng([lat, lon]);
+    });
+    requestAnimationFrame(predictBusMotion);
+}
+// Start the smooth motion engine
+// predictBusMotion();
+
     updateSystem();
-    setInterval(updateSystem, 2000);
+    setInterval(updateSystem, 1000);
 
 </script>
 </body>
-
 </html>
-
-
