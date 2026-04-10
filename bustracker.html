@@ -606,7 +606,7 @@ function getSpecificServiceNote(routeId, busId, currentPattern, serviceLevel) {
 let currentSelectedRoute = null; // Track which route's shape is displayed
 let allRoutesMode = {}; // Track per-stop whether to show all routes
 
-    const API = "http://127.0.0.1:5000";
+    const API = "";
     const map = L.map('map', { zoomControl: false }).setView([37.2296, -80.4139], 14);
     L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { attribution: 'Unofficial Resource' }).addTo(map);
     map.attributionControl.setPrefix(false);
