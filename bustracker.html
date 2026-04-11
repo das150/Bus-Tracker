@@ -271,8 +271,40 @@
         /* Custom grouped stop icon (per-route colors) */
         .stop-icon { position: relative; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; }
         .stop-center { width: 12px; height: 12px; border-radius: 50%; background: white; border: 2px solid #555; box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
-        .stop-badges { position: absolute; right: -6px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 2px; }
-        .stop-badge { width: 8px; height: 8px; border-radius: 50%; border: 1px solid white; box-shadow: 0 1px 2px rgba(0,0,0,0.2); }
+
+
+/* --- REPLACE THESE IN <style> --- */
+/* --- REPLACE THESE IN <style> --- */
+.stop-badges { 
+    position: absolute; 
+    right: -6px; 
+    top: 50%; 
+    transform: translateY(-50%); 
+    display: flex; 
+    flex-direction: column; 
+    align-items: center;
+    z-index: 10;
+}
+
+.stop-badge { 
+    width: 8px; 
+    height: 8px; 
+    border-radius: 50%; 
+    border: 1.5px solid white; 
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    /* THE OVERLAP */
+    margin-top: -5px; 
+    /* REQUIRED FOR Z-INDEX */
+    position: relative; 
+    transition: transform 0.2s;
+}
+
+/* STACKING LOGIC: Higher numbers sit in front */
+.stop-badge:nth-child(1) { z-index: 5; margin-top: 0; }
+.stop-badge:nth-child(2) { z-index: 4; }
+.stop-badge:nth-child(3) { z-index: 3; }
+.stop-badge:nth-child(4) { z-index: 2; }
+.stop-badge:nth-child(5) { z-index: 1; }
 
         /* POPUP */
         .pop-h { background: var(--maroon); color: white; padding: 10px; font-weight: bold; }
@@ -550,6 +582,17 @@
 .sl-full { background: #22c55e; }      /* Green */
 .sl-reduced { background: #f59e0b; }   /* Amber */
 .sl-holiday { background: #ef4444; }   /* Red */
+/* --- ADD TO <style> --- */
+.bus-ghost {
+    opacity: 0.45 !important;
+    filter: grayscale(100%) brightness(1.2);
+    pointer-events: none; /* Don't let ghost buses interfere with clicking real ones */
+}
+
+.ghost-tag {
+    background: #64748b !important;
+    color: white !important;
+}
     </style>
 </head>
 <body>
@@ -816,7 +859,7 @@ vehicles = vehicles.filter(bus => {
     const ageMinutes = ageMs / 60000;
 
     // If data is older than 10 minutes, DELETE IT.
-    if (ageMinutes > 5) {
+    if (ageMinutes > 2) {
         console.log(`👻 Ghost Bus Removed: ID ${bus.id} (Last seen ${Math.round(ageMinutes)}m ago)`);
         return false; 
     }
@@ -842,7 +885,7 @@ vehicles = vehicles.filter(bus => {
             const speedMps = parseInt(state.speed) || 0;
             const speedMph = Math.round(speedMps * 2.23694);
 
-            const adherence = state.deviation || 0;
+const adherence = state.deviation || 0;
             const isStopped = (state.isBusAtStop === "Y");
             const percentCap = parseInt(bus.percentOfCapacity) || 0;
             const isTimePoint = (state.isTimePoint === "Y");
@@ -893,6 +936,20 @@ const versionTs = bus.states && bus.states[0] ? bus.states[0].version : Date.now
         }
     }
 });
+
+Object.keys(btOperationalLogic).forEach(rId => {
+            if (!newRouteData[rId] && shouldRouteBeRunning(rId)) {
+                newRouteData[rId] = { 
+                    count: "SCHED", // Display "SCHED" instead of "0"
+                    buses: [{
+                        id: "SCHED-" + rId,
+                        pattern: "No Live Tracking",
+                        isGhost: true,
+                        pax: 0
+                    }]
+                };
+            }
+        });
 
         renderSidebar(newRouteData);
         updateServiceLevelDisplay(Object.keys(newRouteData));
@@ -1031,11 +1088,17 @@ function updateMarker(id, route, lat, lon, heading, pattern, pax, speed, adheren
 const updateTs = versionTs || Date.now();
     if (busMarkers[id]) {
         const m = busMarkers[id];
-        m.predictionData = {
-        lastLat: lat, lastLon: lon, heading: heading, 
-        speed: speed, lastUpdate: Date.now()
-    };
-    
+        // Use versionTs (API time) as the baseline for the most accurate prediction
+        const baselineTime = versionTs || Date.now();
+        
+        const activePolyline = shapeLayer.getLayers().find(l => l instanceof L.Polyline);
+        const routePoints = (activePolyline && m.currentRoute === currentSelectedRoute) ? activePolyline.getLatLngs() : null;
+
+        // 1. CHECK IF DATA IS NEW BEFORE OVERWRITING
+        // If m.data doesn't exist, or the version is different from the new versionTs, it's new.
+        const isNewData = !m.data || m.data.version !== versionTs;
+
+        // 2. NOW OVERWRITE THE STORED STATE
         m.data = { speed, percentCap, adherence, version: versionTs };
         m.heading = heading;
         
@@ -1046,11 +1109,24 @@ const updateTs = versionTs || Date.now();
              m.prevTopBadge = (isTimePoint && isStopped);
              m.prevCap = percentCap;
         }
-        m.setLatLng([jLat, jLon]);
+        
+        // 3. MOVE THE MARKER
+        if (isNewData) {
+            m.setLatLng([jLat, jLon]);
+        }
         const wrapper = m.getElement()?.querySelector('.bus-rotate-wrap');
+        
         if (wrapper) wrapper.style.transform = `rotate(${heading}deg)`;
         
-        if (id === selectedBusId) m.setZIndexOffset(1000); else m.setZIndexOffset(0);
+const dataAgeSeconds = Math.max(0, Math.floor((Date.now() - updateTs) / 1000));
+const opacity = dataAgeSeconds > 60 ? 0.5 : 1.0;
+
+const iconElement = m.getElement();
+if (iconElement) {
+    iconElement.style.opacity = opacity;
+}
+
+if (id === selectedBusId) m.setZIndexOffset(1000); else m.setZIndexOffset(0)
 
         // Update the popup content immediately if it's open to refresh the live counter [cite: 498]
         const popupHtml = getPopup(id, route, pattern, pax, speed, adherence, isStopped, percentCap, isTimePoint, popupTimestamp, lat, lon);
@@ -1134,6 +1210,34 @@ function predictNextDeparture(cachedSchedule, stopLat, stopLon, currentRouteId, 
         activeBuses.push({ ...busPos, distance: dist, stopSequence: busStopSequence, hasPassed: hasPassed });
     });
 
+// --- THE FIX: GHOST SCHEDULE CLEARING WITH MEMORY ---
+    const recentlyDepartedBus = activeBuses.find(b => b.hasPassed && (!showAllRoutes ? b.route === currentRouteId : true) && b.distance < 600);
+    
+    // Create a memory bank to remember when buses leave stops
+    if (!window.stopClearMemory) window.stopClearMemory = {};
+    const memoryKey = `${stopCode}-${currentRouteId}`;
+
+    if (recentlyDepartedBus) {
+        window.stopClearMemory[memoryKey] = now.getTime(); // Record the exact moment the bus left
+    }
+
+    let localSchedule = cachedSchedule;
+    
+    // If a bus left this stop within the last 90 seconds, forcefully hide the current schedule entry.
+    // This bridges the gap while we wait for the slow API to delete it, permanently killing the "DUE" flash!
+    if (window.stopClearMemory[memoryKey] && (now.getTime() - window.stopClearMemory[memoryKey] < 90000)) {
+        localSchedule = cachedSchedule.filter(s => s.date.getTime() > now.getTime() + 60000); // Push 1 minute into the future
+    } else if (recentlyDepartedBus) {
+        localSchedule = cachedSchedule.filter(s => s.date.getTime() > now.getTime() + 15000); 
+    }
+
+    if (!localSchedule || localSchedule.length === 0) {
+        console.groupEnd();
+        return { type: "end_of_service", scheduledTime: now, dest: "N/A" };
+    }
+
+    console.log(`📅 API Anchor Time: ${scheduledTime.toLocaleTimeString()} (Dest: ${firstScheduled.dest})`);
+
     let validBuses = activeBuses.filter(b => !b.hasPassed);
 
     validBuses.sort((a, b) => {
@@ -1148,143 +1252,169 @@ function predictNextDeparture(cachedSchedule, stopLat, stopLon, currentRouteId, 
         return true;
     });
 
-    let bestBus = null;
+let bestBus = null;
     let bestMatch = null;
     
-    // --- KEEPING YOUR MATCHING LOOP ---
+    // FIX 1: First valid bus gets the first chronological schedule slot IN THE FUTURE
     for (const bus of validBuses) {
-        // Pass routeShape and activeBuses to the physics engine
         const seconds = calculatePrecisionETA(bus, stopLat, stopLon, currentStopSequence, bus.stopSequence, routeShape, activeBuses);
-        
         if (seconds === null || seconds < 0) continue;
         
         const loopEtaTime = new Date(now.getTime() + (seconds * 1000));
 
-        let closestScheduleMatch = null;
-        let minTimeDiff = Infinity;
-        
-        cachedSchedule.forEach((schedEntry) => {
-            if (showAllRoutes && schedEntry.route !== bus.route) return;
-            
-            const timeDiff = (loopEtaTime - schedEntry.date) / 60000;
-            const absDiff = Math.abs(timeDiff);
-            const dist = bus.distance;
-            
-            if (dist < 500 && absDiff > 15) return;
-            
-            if (absDiff < minTimeDiff) {
-                minTimeDiff = absDiff;
-                closestScheduleMatch = schedEntry;
-            }
-        });
-        
-        if (closestScheduleMatch && minTimeDiff < 30) {
-            // Your "Quality Check" logic
-            if (bestBus && bestMatch) {
-                const currentMatchQuality = minTimeDiff + (bus.distance / 1000); 
-                const prevMatchQuality = Math.abs((bestBus.etaTime - bestMatch.date) / 60000) + (bestBus.distance / 1000);
-                
-                if (currentMatchQuality >= prevMatchQuality) continue; 
-            }
-            
+        // Enforce that the matched schedule is the NEXT departure (allow 60s grace period)
+// FIX 1: Allow matching schedules up to 7 minutes in the past (so late buses don't skip)
+        const firstScheduleMatch = localSchedule.find(schedEntry => 
+            (!showAllRoutes || schedEntry.route === bus.route) &&
+            (schedEntry.date.getTime() >= now.getTime() - (7 * 60000)) 
+        );
+        if (firstScheduleMatch) {
             bestBus = { ...bus, seconds, etaTime: loopEtaTime };
-            bestMatch = closestScheduleMatch;
+            bestMatch = firstScheduleMatch;
+            break; 
         }
     }
 
-    if (!bestBus || !bestMatch) {
-        const timeSinceScheduled = (now - scheduledTime) / 60000;
-        console.log(`⚠️ No Match. Time since: ${timeSinceScheduled.toFixed(1)} min`);
+if (!bestBus || !bestMatch) {
         console.groupEnd();
         
+        // --- THE FIX: GHOST SCHEDULE SNAP ---
+        // If no physical bus is tracking towards this stop, bypass ANY stale API schedules 
+        // that are stuck in the past. Force the app to grab the next future departure.
+        // This instantly obliterates the "DUE" flash when a bus drives away.
+        const futureSchedule = localSchedule.find(s => s.date.getTime() >= now.getTime() + 15000); 
+        const finalSched = futureSchedule || localSchedule[0];
+        
+        const timeSinceScheduled = (now - finalSched.date) / 60000;
         if (timeSinceScheduled > 2) {
-            return { type: "late_bus", scheduledTime, minutesLate: Math.round(timeSinceScheduled), dest: firstScheduled.dest };
+            return { type: "late_bus", scheduledTime: finalSched.date, dest: finalSched.dest, route: finalSched.route };
         }
-        return { type: "scheduled", scheduledTime, dest: firstScheduled.dest };
+        return { type: "scheduled", scheduledTime: finalSched.date, dest: finalSched.dest, route: finalSched.route };
     }
 
-    if (!bestMatch.isTimecheck) {
-        console.log("⚡ Applying -20s offset to prediction");
-        bestBus.seconds = Math.max(0, bestBus.seconds - 20);
-    }
+ //   if (!bestMatch.isTimecheck) {
+ //       bestBus.seconds = Math.max(0, bestBus.seconds - 20);
+ //   }
 
     const matchedScheduledTime = bestMatch.date;
     const distToStop = bestBus.distance;
     const routeInfo = showAllRoutes ? ` (${bestBus.route})` : '';
-
     let timecheckConstraint = bestMatch.prevTimecheckDeparture || null;
-    let etaTime = new Date(now.getTime() + (bestBus.seconds * 1000));
+
+    const busTimestamp = (bestBus.data && bestBus.data.version) ? bestBus.data.version : now.getTime();
+    let etaTime = new Date(busTimestamp + (bestBus.seconds * 1000));
     
     if (timecheckConstraint && etaTime < timecheckConstraint) {
-        console.log(`🛡️ Timecheck Constraint Applied`);
         etaTime = new Date(timecheckConstraint.getTime() + 60000);
         bestBus.seconds = (etaTime - now) / 1000;
+    }
+
+const apiSeconds = (matchedScheduledTime.getTime() - now.getTime()) / 1000;
+    if (apiSeconds > 0 && apiSeconds < bestBus.seconds && distToStop < 2500) {
+        bestBus.seconds = apiSeconds;
+        etaTime = matchedScheduledTime;
     }
     
     let adherenceMinutes = (etaTime - matchedScheduledTime) / 60000;
     
-    if (adherenceMinutes < -1.5) {
-        console.log(`🛡️ Early Clamp Applied`);
-        etaTime = new Date(matchedScheduledTime.getTime() - 30000); 
-        bestBus.seconds = (etaTime - now) / 1000;
-        adherenceMinutes = -0.5;
+    // --- Line of Sight Exception ---
+    if (!bestMatch.isTimecheck && adherenceMinutes < 0 && distToStop > 250) {
+        etaTime = matchedScheduledTime; 
+        bestBus.seconds = (etaTime.getTime() - now.getTime()) / 1000;
+        adherenceMinutes = 0; 
     }
+
+    // --- Apply API Trust Cap ---
+    if (adherenceMinutes > 3) {
+        etaTime = new Date(matchedScheduledTime.getTime() + (3 * 60000));
+        bestBus.seconds = (etaTime - now) / 1000;
+        adherenceMinutes = 3;
+    }
+
+    // --- THE FIX: Proximity Snap ---
+    // Aggressively cap BOTH the seconds AND the etaTime so the UI drops instantly.
+    if (distToStop < 100) {
+        bestBus.seconds = Math.min(bestBus.seconds, 15);
+        etaTime = new Date(now.getTime() + (bestBus.seconds * 1000)); // This forces the UI to listen!
+    }
+
+    // FIX 2: 3-Minute Late Boundary Cap (Trust the API predictions)
+//
 
     console.log(`📊 Final Calc: Adherence ${adherenceMinutes.toFixed(1)}m, Dist ${Math.round(distToStop)}m`);
 
-    if (distToStop < 50 && bestBus.seconds < 30) {
-        console.log("👉 Result: ARRIVED/HOLDING");
-        console.groupEnd();
+    // --- NEW: ETA JUMP PROTECTION (Anti-Rubberbanding) ---
+if (!window.etaHistory) window.etaHistory = {};
+    const historyKey = `${bestBus.id}-${stopCode}`;
+    const nowTs = now.getTime();
+    const prev = window.etaHistory[historyKey];
 
+    if (prev) {
+        // 1. Final Approach Lock: If it was under 45s, NEVER let it jump back up.
+        if (prev.seconds < 45 && bestBus.seconds > prev.seconds) {
+            bestBus.seconds = Math.max(0, prev.seconds - ((nowTs - prev.lastUpdate) / 1000));
+            etaTime = prev.etaTime;
+            window.etaHistory[historyKey] = { ...prev, seconds: bestBus.seconds, lastUpdate: nowTs };
+        } 
+        // 2. Standard Jump Protection: Suppress >15% jumps for 15 seconds (Stop sign protection)
+        else if (bestBus.seconds > prev.seconds * 1.15 && bestBus.seconds > prev.seconds + 20) {
+            if (nowTs - prev.firstJumpTs < 15000) { 
+                bestBus.seconds = Math.max(0, prev.seconds - ((nowTs - prev.lastUpdate) / 1000));
+                etaTime = prev.etaTime;
+                window.etaHistory[historyKey] = { ...prev, seconds: bestBus.seconds, lastUpdate: nowTs };
+            } else {
+                window.etaHistory[historyKey] = { seconds: bestBus.seconds, etaTime: etaTime, firstJumpTs: nowTs, lastUpdate: nowTs };
+            }
+        } else {
+            // Normal downward tick
+            window.etaHistory[historyKey] = { seconds: bestBus.seconds, etaTime: etaTime, firstJumpTs: nowTs, lastUpdate: nowTs };
+        }
+    } else {
+        window.etaHistory[historyKey] = { seconds: bestBus.seconds, etaTime: etaTime, firstJumpTs: nowTs, lastUpdate: nowTs };
+    }
+    // -----------------------------------------------------
+
+// --- FINAL STATUS EVALUATION ---
+// --- FINAL STATUS EVALUATION ---
+    const busSpeedMph = (bestBus.data && bestBus.data.speed) ? Number(bestBus.data.speed) : 0;
+
+    // THE FIX: To be "ARRIVED", the bus MUST be close (< 40m) AND actively slowing down / stopped (< 12 mph).
+    // If a bus accelerates past 12 mph to leave, ARRIVED drops instantly, even if it's only 5 meters away!
+    // If it speeds past the stop at 20mph, it completely skips ARRIVED.
+    if (distToStop < 40 && bestBus.seconds < 30 && busSpeedMph < 12) {
         if (bestMatch.isTimecheck) {
             const holdSeconds = (matchedScheduledTime - now) / 1000;
+            
+            // API Schedule Rollover Protection
+            if (holdSeconds > 600) {
+                return { type: "timecheck_departing", busId: bestBus.id, dest: bestMatch.dest + routeInfo, scheduledTime: new Date(), route: bestBus.route };
+            }
+
             if (holdSeconds > 0) {
-                return { 
-                    type: "timecheck_holding", 
-                    seconds: holdSeconds, 
-                    busId: bestBus.id, 
-                    scheduledTime: matchedScheduledTime, 
-                    dest: bestMatch.dest + routeInfo,
-                    route: bestBus.route 
-                };
-            } else if (holdSeconds > -45) {
-                return { 
-                    type: "timecheck_departing", 
-                    busId: bestBus.id, 
-                    dest: bestMatch.dest + routeInfo, 
-                    scheduledTime: matchedScheduledTime,
-                    route: bestBus.route 
-                };
+                return { type: "timecheck_holding", seconds: holdSeconds, busId: bestBus.id, scheduledTime: matchedScheduledTime, dest: bestMatch.dest + routeInfo, route: bestBus.route };
+            } else {
+                return { type: "timecheck_departing", busId: bestBus.id, dest: bestMatch.dest + routeInfo, scheduledTime: matchedScheduledTime, route: bestBus.route };
             }
         }
-        return { 
-            type: "arrived", 
-            busId: bestBus.id, 
-            dest: bestMatch.dest + routeInfo, 
-            scheduledTime: matchedScheduledTime,
-            route: bestBus.route 
-        };
+        return { type: "arrived", busId: bestBus.id, dest: bestMatch.dest + routeInfo, scheduledTime: matchedScheduledTime, route: bestBus.route };
     }
 
-    console.log("👉 Result: EN ROUTE/APPROACHING");
-    console.groupEnd();
-    
-    let status = "ontime", statusText = "ON TIME";
-    if (adherenceMinutes > 0.5) { status = "late"; statusText = `~${Math.round(adherenceMinutes)}m LATE`; }
-    else if (adherenceMinutes < -0.5) { status = "early"; statusText = `~${Math.abs(Math.round(adherenceMinutes))}m EARLY`; }
-
     const type = (bestBus.seconds < 60) ? "approaching" : "en_route";
+    
+    // Grab the hold status from the physical marker for downstream UI freezing
+    const mTracker = busMarkers[bestBus.id];
+    const isHolding = mTracker ? mTracker.prevTopBadge : false;
 
     return { 
         type: type, 
         seconds: bestBus.seconds, 
-        etaTime: etaTime, // Crucial for the countdown
+        etaTime: etaTime, 
         busId: bestBus.id, 
         dest: bestMatch.dest + routeInfo, 
-        status, 
-        statusText, 
         scheduledTime: matchedScheduledTime,
-        route: bestBus.route 
+        route: bestBus.route,
+        isTimecheck: bestMatch.isTimecheck,
+        isHolding: isHolding 
     };
 }
     let liveEtaTimer = null;
@@ -1436,12 +1566,25 @@ if (json.stops && json.stops.length > 0) {
     if (!timerEl) return;
 
     // 1. Data Refresh (Keep this mostly the same)
+// 1. Data Refresh
     const nowTs = Date.now();
     if (!updateDisplay.lastFetch || (nowTs - updateDisplay.lastFetch > 10000)) {
         const freshSchedule = await fetchSchedule();
         if (freshSchedule.length > 0 && cachedSchedule.length > 0) {
              if (freshSchedule[0].date.getTime() !== cachedSchedule[0].date.getTime()) {
-                 cachedSchedule = freshSchedule; // Bus passed
+                 
+                 // --- THE FIX: API GHOSTING SHIELD ---
+                 // The API just deleted the next departure. But did the bus ACTUALLY leave?
+                 // Let's ask the physics engine using the old schedule.
+                 const currentP = predictNextDeparture(cachedSchedule, s.lat, s.lon, route, s.code, json.shape, json.stops, currentStopSequence);
+                 
+                 // If the physical bus is arrived, holding, or less than 90 seconds away, REJECT the API's deletion.
+                 if (currentP && (currentP.type === "arrived" || currentP.type.includes("timecheck") || currentP.seconds < 90)) {
+                     console.log("🛡️ API Ghosting Prevented: Bus is still physically approaching/holding. Keeping schedule active.");
+                     freshSchedule.unshift(cachedSchedule[0]); // Force the old schedule back into the array
+                 }
+                 
+                 cachedSchedule = freshSchedule; 
              }
         } else {
              cachedSchedule = freshSchedule;
@@ -1467,68 +1610,13 @@ if (json.stops && json.stops.length > 0) {
     const min = Math.floor(liveSeconds / 60);
     const sec = Math.floor(liveSeconds % 60).toString().padStart(2, '0');
     
-    // --- 4. RENDER STATES ---
+// --- 4. RENDER STATES ---
 
-    if (p.type === "end_of_service") {
-        boxEl.style.background = "#f8f9fa"; boxEl.style.border = "1px solid #ddd";
-        lblEl.innerHTML = `<span style="color:#d32f2f; font-weight:800;">SERVICE ENDED</span>`;
-        timerEl.innerText = "--:--";
-        subEl.innerText = "No more scheduled runs";
-        return;
-    }
+    const isOB = p && p.dest ? /\bOB\b/i.test(p.dest) : false;
+    const isIB = p && p.dest ? /\bIB\b/i.test(p.dest) : false;
+    const isLR = p && p.dest ? /\bLR\b/i.test(p.dest) : false;
 
-    if (p.type === "timecheck_holding" || p.type === "timecheck_departing") {
-        boxEl.style.background = "#2c3e50"; // Dark Blue Theme
-        boxEl.style.border = "none";
-        boxEl.style.color = "white";
-        
-        lblEl.innerHTML = `<span style="color:#bdc3c7;">TIMECHECK STOP</span>`;
-        
-        if (p.type === "timecheck_holding") {
-             timerEl.style.color = "white";
-             timerEl.innerText = `Departs in ${min}:${sec}`;
-             subEl.innerHTML = `<span style="color:#ecf0f1;">Bus ${p.busId} is holding until ${schedStr}</span>`;
-        } else {
-
-             timerEl.innerHTML = "DEPARTING NOW";
-             subEl.innerHTML = `<span style="color:#ecf0f1;">Bus ${p.busId} is leaving</span>`;
-        }
-        return;
-    }
-
-    if (p.type === "arrived") {
-        boxEl.style.background = "#630031"; boxEl.style.border = "none";
-        lblEl.innerHTML = `<span style="color:white;">CURRENTLY AT STOP</span>`;
-        timerEl.innerHTML = `<span style="color:white; animation:pulse 1s infinite;">ARRIVED</span>`;
-        subEl.innerHTML = `<span style="color:white;">Bus ${p.busId} • ${p.dest}</span>`;
-        return;
-    }
-
-// --- UPDATE in updateDisplay() ---
-if (p.type === "en_route" || p.type === "approaching") {
-    const isApproaching = (liveSeconds < 60);
-    const routeColor = getRouteColor(p.route); // [cite: 143]
-    
-    boxEl.style.background = "#fff";
-    // ADDED: Professional left-border accent for the main ETA card 
-    boxEl.style.border = "1px solid #e0e6ed";
-    boxEl.style.borderLeft = `6px solid ${routeColor}`; 
-    boxEl.style.color = "#333";
-
-    lblEl.innerHTML = `EST. DEPARTURE <span style="color:#64748b;">${p.etaTime.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'})}</span>`;
-    // ... rest of logic
-        
-        // THE COUNTDOWN
-        if (liveSeconds < 60) {
-            timerEl.innerHTML = `<span style="color:#cf4420; font-weight:900;">${Math.floor(liveSeconds)}s</span>`;
-        } else {
-            timerEl.innerText = `${min} min`;
-        }
-        
-        const statusClass = (p.status === "late") ? "late" : (p.status === "early") ? "early" : "ontime";
-        const routeBadge = p.route ? `<span style="background: ${getRouteColor(p.route)}; color: white; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: bold; margin-right: 4px;">${p.route}</span>` : '';
-        
-let cleanDest = p.dest.replace(new RegExp('^' + p.route, 'i'), '').trim();
+    let cleanDest = p.dest.replace(new RegExp('^' + p.route, 'i'), '').trim();
 
 // 2. Expand the abbreviations
 cleanDest = cleanDest
@@ -1536,18 +1624,185 @@ cleanDest = cleanDest
     .replace(/\bIB\b/g, 'Inbound')
     .replace(/\bLR\b/g, 'Last Run');
 
-        subEl.innerHTML = `
-            <div style="margin-top:2px;">${routeBadge} ${cleanDest ? '' + cleanDest : ''}</div>
-            <div style="margin-top:4px; font-size:11px;">
-            </div>
-        `;
+    let tagsHtml = "";
+    if (isOB) tagsHtml += `<span style="background:#e3f2fd; color:#1565c0; border:1px solid #90caf9; padding:2px 6px; border-radius:4px; font-size:9px; font-weight:800;">OUTBOUND</span>`;
+    if (isIB) tagsHtml += `<span style="background:#e8f5e9; color:#2e7d32; border:1px solid #a5d6a7; padding:2px 6px; border-radius:4px; font-size:9px; font-weight:800;">INBOUND</span>`;
+    if (isLR) tagsHtml += `<span class="tag lastrun" style="font-size:9px; padding:2px 6px;">LAST RUN</span>`;
+
+    // Ensure we have a route string for the badge, fallback to the outer scope 'route' variable if needed
+    const currentRouteString = (p && p.route) ? p.route : route;
+    const routeBadge = `<span style="background:${getRouteColor(currentRouteString)}; color:white; padding:2px 6px; border-radius:4px; font-size:10px; font-weight:800;">${currentRouteString}</span>`;
+    const destLine = `<div style="margin-top:2px; display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:5px;">${routeBadge} <span style="font-weight:600; color:#333;">${cleanDest ? '' + cleanDest : ''}</span> ${tagsHtml}</div>`;
+
+    // --- UI RENDERING ---
+
+// --- UI RENDERING ---
+
+    if (p && p.type === "end_of_service") {
+        boxEl.style.background = "#f8f9fa"; boxEl.style.border = "1px solid #ddd";
+        lblEl.innerHTML = `<span style="color:#d32f2f; font-weight:800;">SERVICE ENDED</span>`;
+        timerEl.innerText = "--:--";
+        subEl.innerText = "No more scheduled runs";
         return;
     }
 
-    boxEl.style.background = "#fff"; boxEl.style.border = "1px solid #ddd";
-    lblEl.innerHTML = `NEXT SCHEDULED`;
-    timerEl.innerText = schedStr;
-    subEl.innerText = "Waiting for updated data...";
+    if (p && (p.type === "timecheck_holding" || p.type === "timecheck_departing")) {
+        const routeColor = getRouteColor(p.route);
+        boxEl.style.background = "#fff";
+        boxEl.style.border = "1px solid #e0e6ed";
+        boxEl.style.borderLeft = `6px solid ${routeColor}`;
+        boxEl.style.color = "#333";
+        
+        if (p.type === "timecheck_holding") {
+             lblEl.innerHTML = `DEPARTURE <span style="color:#64748b;">${p.scheduledTime.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'})}</span>`;
+             
+             const holdSeconds = Math.max(0, (p.scheduledTime.getTime() - Date.now()) / 1000);
+             const hMin = Math.floor(holdSeconds / 60);
+             const hSec = Math.floor(holdSeconds % 60).toString().padStart(2, '0');
+
+             // Match the countdown text color to the Route Color
+             if (holdSeconds < 60) {
+                 timerEl.innerHTML = `<span style="color:${routeColor}; font-weight:900;">${Math.floor(holdSeconds)}s</span>`;
+             } else if (holdSeconds < 300) {
+                 timerEl.innerHTML = `<span style="color:${routeColor}; font-weight:900;">${hMin}:${hSec}</span>`;
+             } else {
+                 timerEl.innerHTML = `<span style="color:${routeColor}; font-weight:900;">${hMin} min</span>`;
+             }
+
+             subEl.innerHTML = `
+                 ${destLine}
+                 <div style="margin-top:6px; font-size:11px; font-weight:700; color:#1565c0;">Arrived & Holding</div>
+             `;
+        } else {
+             lblEl.innerHTML = `DEPARTING <span style="color:#64748b;">NOW</span>`;
+             timerEl.innerHTML = `<span style="color:${routeColor}; animation:pulse 1s infinite; font-weight:900;">LEAVING</span>`;
+             subEl.innerHTML = destLine;
+        }
+        return;
+    }
+
+    if (p && p.type === "arrived") {
+        boxEl.style.background = getRouteColor(p.route); boxEl.style.border = "none";
+        lblEl.innerHTML = `<span style="color:white;">CURRENTLY AT STOP</span>`;
+        timerEl.innerHTML = `<span style="color:white; animation:pulse 1s infinite;">ARRIVED</span>`;
+        
+        const whiteTagsHtml = tagsHtml.replace(/color:[^;]+;/g, 'color:white;').replace(/background:[^;]+;/g, 'background:rgba(255,255,255,0.2);');
+        subEl.innerHTML = `<div style="margin-top:2px; display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:5px; color:white; font-weight:600;">Bus ${p.busId} • ${cleanDest} ${whiteTagsHtml}</div>`;
+        return;
+    }
+
+if (p && (p.type === "en_route" || p.type === "approaching")) {
+        const routeColor = getRouteColor(p.route);
+        boxEl.style.background = "#fff";
+        boxEl.style.border = "1px solid #e0e6ed";
+        boxEl.style.borderLeft = `6px solid ${routeColor}`;
+        boxEl.style.color = "#333";
+
+        // --- THE FIX: Centralized Timer Generator ---
+        // This mathematically guarantees "0s" can never be printed to the screen.
+        let liveTimerHtml = "";
+        if (liveSeconds <= 2) {
+            liveTimerHtml = `<span style="color:${routeColor}; font-weight:900; font-size:18px; letter-spacing:-0.5px;">APPROACHING</span>`;
+        } else if (liveSeconds < 60) {
+            liveTimerHtml = `<span style="color:${routeColor}; font-weight:900;">${Math.floor(liveSeconds)}s</span>`;
+        } else if (liveSeconds < 300) {
+            liveTimerHtml = `<span style="color:${routeColor}; font-weight:900;">${min}:${sec}</span>`;
+        } else {
+            liveTimerHtml = `<span style="color:${routeColor}; font-weight:900;">${min} min</span>`;
+        }
+
+        // Timecheck Early Arrival Logic
+        if (p.isTimecheck && p.scheduledTime) {
+            const holdTimeMins = (p.scheduledTime.getTime() - p.etaTime.getTime()) / 60000;
+
+            if (holdTimeMins >= 1) { 
+                lblEl.innerHTML = `EST. ARRIVAL <span style="color:#64748b;">${p.etaTime.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'})}</span>`;
+                timerEl.innerHTML = liveTimerHtml; // Use centralized timer
+
+                const tcNote = holdTimeMins > 0.5 
+                    ? `Holds until ${p.scheduledTime.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'})}`
+                    : `Departs upon arrival`;
+
+                subEl.innerHTML = `
+                    ${destLine}
+                    <div style="margin-top:6px; font-size:11px; font-weight:800; color:#1565c0;">${tcNote}</div>
+                `;
+                return;
+            }
+        }
+
+        // Downstream stops shouldn't tick if the bus is currently parked at a timecheck
+        if (p.isHolding) {
+            const displayTime = (p.isTimecheck && p.scheduledTime > p.etaTime) ? p.scheduledTime : p.etaTime;
+            lblEl.innerHTML = `EST. DEPARTURE <span style="color:#64748b;">${displayTime.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'})}</span>`;
+            
+            timerEl.innerHTML = `<span style="color:${routeColor}; font-weight:900;">~${Math.max(1, min)} min</span>`;
+            
+            subEl.innerHTML = `
+                ${destLine}
+                <div style="margin-top:6px; font-size:11px; font-weight:800; color:#64748b;">Waiting for departure from previous timecheck</div>
+            `;
+            return;
+        }
+
+        // Standard Behavior (Non-timecheck)
+        const labelPrefix = p.isTimecheck ? "DEPARTURE" : "EST. DEPARTURE";
+        const displayTime = (p.isTimecheck && p.scheduledTime > p.etaTime) ? p.scheduledTime : p.etaTime;
+
+        lblEl.innerHTML = `${labelPrefix} <span style="color:#64748b;">${displayTime.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'})}</span>`;
+        
+        timerEl.innerHTML = liveTimerHtml; // Use centralized timer
+        
+        subEl.innerHTML = destLine; 
+        return;
+    }
+
+    // --- SCHEDULED FALLBACK (No active live bus locked on) ---
+// --- SCHEDULED FALLBACK (No active live bus locked on) ---
+    boxEl.style.background = "#f8f9fa"; 
+    boxEl.style.border = "1px solid #e0e6ed";
+    boxEl.style.borderLeft = `6px solid #cbd5e1`; // Neutral gray left border
+    boxEl.style.color = "#333";
+    
+    lblEl.innerHTML = `NEXT SCHEDULED <span style="color:#64748b;">${schedStr}</span>`;
+    
+    if (p && p.scheduledTime) {
+        // Allow the timer to go negative to detect late buses
+        const schedDiffSeconds = (p.scheduledTime.getTime() - Date.now()) / 1000;
+        
+        if (schedDiffSeconds > 0) {
+            // Future Scheduled Time
+            const schedMin = Math.floor(schedDiffSeconds / 60);
+            const schedSec = Math.floor(schedDiffSeconds % 60).toString().padStart(2, '0');
+            
+            if (schedDiffSeconds < 300) { 
+                timerEl.innerHTML = `<span style="color:#1e293b; font-weight:800;">${schedMin}:${schedSec}</span>`;
+            } else {
+                timerEl.innerHTML = `<span style="color:#1e293b; font-weight:800;">${schedMin} min</span>`;
+            }
+
+            subEl.innerHTML = `
+                ${destLine}
+                <div style="margin-top:6px; font-size:11px; color:#64748b; font-weight:600;">Based on timetable</div>
+            `;
+        } else {
+            // THE FIX: The scheduled time has passed, but no physical bus has triggered the "Arrived" logic yet.
+            // Do not freeze at 00:00. Show a DUE status.
+            timerEl.innerHTML = `<span style="color:#f57c00; font-weight:900;">DUE</span>`;
+            subEl.innerHTML = `
+                ${destLine}
+                <div style="margin-top:6px; font-size:11px; color:#f57c00; font-weight:700;">Waiting for live bus data</div>
+            `;
+        }
+    } else {
+        timerEl.innerText = schedStr || "--:--";
+        subEl.innerHTML = `
+            ${destLine}
+            <div style="margin-top:6px; font-size:11px; color:#64748b; font-weight:600;">Based on timetable</div>
+        `;
+    }
+
+// END OF updateDisplay FUNCTION
 };
     // NEW: Make updateDisplay accessible globally for checkbox refresh
     window.activeStopUpdateFunction = updateDisplay;
@@ -1559,7 +1814,7 @@ cleanDest = cleanDest
     }
 
                         updateDisplay();
-                        liveEtaTimer = setInterval(updateDisplay, 2000);
+                        liveEtaTimer = setInterval(updateDisplay, 1000);
                     });
 
                     m.on('popupclose', () => { 
@@ -1658,10 +1913,9 @@ cleanDest = cleanDest
         return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
     }
 
-    function hasBusPassed(bus, stopLat, stopLon) {
+function hasBusPassed(bus, stopLat, stopLon) {
         const dist = getDistance(bus.lat, bus.lon, stopLat, stopLon);
-        
-        if (dist < 35) return false; 
+        if (dist < 15) return false; // Too close to reliably calculate bearing
 
         const y = Math.sin((stopLon - bus.lon) * Math.PI / 180) * Math.cos(stopLat * Math.PI / 180);
         const x = Math.cos(bus.lat * Math.PI / 180) * Math.sin(stopLat * Math.PI / 180) -
@@ -1671,7 +1925,15 @@ cleanDest = cleanDest
         let angleDiff = Math.abs(bus.heading - bearingToStop);
         if (angleDiff > 180) angleDiff = 360 - angleDiff;
 
-        return (angleDiff > 90 && dist > 35);
+        const speedMph = (bus.data && bus.data.speed) ? Number(bus.data.speed) : 0;
+
+        // Condition 1: Bus is pointing away (angle > 90) and has cleared the immediate stop box (20m)
+        if (angleDiff > 90 && dist > 20) return true;
+        
+        // Condition 2: Bus blew past or accelerated away. Moving fast (>10mph), pointing slightly away.
+        if (angleDiff > 60 && dist > 20 && speedMph > 5) return true;
+
+        return false;
     }
 
     // ✅ ADVANCED ETA: Considers stops remaining, load, and traffic
@@ -1710,7 +1972,10 @@ function calculatePrecisionETA(bus, stopLat, stopLon, targetStopSeq, busStopSeq,
         trafficDrag = 0.8;
     }
 
-    if (currentSpeedMph > 35) {
+    if (roadDist < 500) {
+        // Enforce a minimum rolling speed of ~15mph (6.7 m/s) so stop signs don't ruin the timer
+        effectiveSpeed = Math.max(6.7, (currentSpeedMps * 0.4) + (6.7 * 0.6));
+    } else if (currentSpeedMph > 35) {
         effectiveSpeed = currentSpeedMps;
     } else if (currentSpeedMph > 5) {
         effectiveSpeed = ((currentSpeedMps * 0.7) + (6.7 * 0.3)) * urgencyMultiplier * trafficDrag;
@@ -1778,8 +2043,8 @@ let intersectionPenalty = 0;
         seconds += (stopsRemaining * dwellTimePerStop);
     }
 
-    if (roadDist < 200) {
-        seconds += 8;
+if (roadDist < 300) {
+        seconds -= 18; 
     }
     
     return Math.max(0, Math.round(seconds));
@@ -1791,12 +2056,12 @@ function getPopup(busId, currentRoute, currentPattern, pax, rawSpeed, adherence,
     const now = new Date();
 
 let alertBanner = ""; 
-    let nextPatternDisplay = "Repeating Loop";
-    let bayNote = logic ? `Catch at ${logic.bay}` : "";
+    let nextPatternDisplay = `Repeating Loop (${currentRoute})`;
+    let bayNote = logic ? `at ${logic.bay}` : "";
 
     // 1. SMART SPEED & PACE (Centered Speedometer Icon)
     const paceColor = speed === 0 ? "#94a3b8" : (speed > 35 ? "#cf4420" : "#22c55e");
-    const displaySpeed = speed > 35 ? 35 + Math.floor(Math.random() * 2) : Math.round(speed);
+    const displaySpeed = speed;
     const paceWidth = Math.min(100, (displaySpeed / 45) * 100);
 
     // 2. LIVE TIMER: Absolute Time + Counter (Fixes Trillion Seconds Bug)
@@ -1811,12 +2076,29 @@ let alertBanner = "";
     const loadColor = (percentCap > 85 || isDataErr) ? "#d32f2f" : "#64748b";
 
     // 4. STATUS & SPATIAL LOGIC
-    let status = isStopped ? (isTimePoint ? "Timecheck" : "At Stop") : "En Route";
-    let statusColor = isStopped ? routeColor : "#1565c0"; // Match route color at stops
+    let status = isStopped ? (isTimePoint ? "TIMECHECK" : "AT STOP") : "EN ROUTE";
+    let statusColor = routeColor; // Match route color at stops isStopped ? routeColor : 
+
+    if (speed > 5) {
+        status = "EN ROUTE";
+    }
     
     // Spatial Off-Route Detection (requires checkSpatialDistance helper)
     if (typeof checkSpatialDistance === "function" && checkSpatialDistance(lat, lon)) {
-        status = "Off Route"; statusColor = "#d32f2f";
+        status = "OFF ROUTE"; statusColor = "#d32f2f";
+    }
+
+    // --- 2. LOGIC: TIMECHECK COUNTDOWN ---
+    let holdNote = "";
+    if (status === "TIMECHECK") {
+        const adNum = parseFloat(adherence);
+        // If adherence is negative, the bus is early and holding.
+        if (adNum < 0) {
+            const mins = Math.abs(Math.round(adNum));
+            holdNote = `<div style="font-size:9px; color:${routeColor};">(${mins})</div>`;
+        } else {
+            holdNote = `<div style="font-size:9px; color:#64748b;">DEPARTING (${adherence})</div>`;
+        }
     }
 
     // 5. ENHANCED TRANSITION LOGIC (BT FY26 Routecards)
@@ -1837,10 +2119,10 @@ if (serviceInfo.isEnding) {
         }
     } else if (currentRoute === "CAS") {
         nextPatternDisplay = currentPattern.includes("Orange") ? "CAS to Maroon Loop" : "CAS to Orange Loop";
-        bayNote = currentPattern.includes("Orange") ? "Catch at Maroon Bay 5" : "Catch at Orange Bay 14";
+        bayNote = currentPattern.includes("Orange") ? "From Orange Bay 14" : "From Maroon Bay 5";
     } else if (logic && logic.paired) {
         nextPatternDisplay = `Switch to ${logic.next}`;
-        alertBanner = `<div class="pop-alert-banner banner-transition">🔄 Switches to ${logic.next} next</div>`;
+        alertBanner = `<div class="pop-alert-banner banner-transition">Switching to ${logic.next} next</div>`;
     }
 
     if (isLR || isGoingGarage) {
@@ -1879,25 +2161,24 @@ if (serviceInfo.isEnding) {
             ${alertBanner}
             <div class="bus-grid">
                 <div class="bus-stat">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${paceColor}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M4.5 18a8.5 8.5 0 1 1 15 0"></path><path d="m12 14 4-4"></path><path d="M12 14a1 1 0 1 0 0 2 1 1 0 0 0 0-2Z"></path>
-                    </svg>
+                    <svg width="24" height="24" viewBox="2.5 2.5 19 19" fill="none" stroke="${paceColor}" stroke-width="2.5"><path d="M4.5 18a8.5 8.5 0 1 1 15 0"/><path d="m12 14 4-4"/><circle cx="12" cy="14" r="1"/></svg>
                     <span class="stat-label">Speed</span>
-                    <span class="stat-value">${displaySpeed} <span style="font-size:9px">MPH</span></span>
+                    <span class="stat-value">${displaySpeed} <small>MPH</small></span>
                     <div class="pace-gauge"><div class="pace-fill" style="width:${paceWidth}%; background:${paceColor}"></div></div>
-                </div>
+                </div>      
                 <div class="bus-stat">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${loadColor}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
                     </svg>
                     <span class="stat-label">Load</span>
-                    <span class="stat-value" style="color:${loadColor}">${cleanPax} <span style="font-size:9px">PAX</span></span>
+                    <span class="stat-value" style="color:${loadColor}">${cleanPax} <small>PAX</small></span>
                     <span style="font-size:9px; color:#94a3b8; font-weight:700;">${isDataErr ? 'Sensor Error' : percentCap + '% CAP'}</span>
                 </div>
                 <div class="bus-stat">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${statusColor}" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                     <span class="stat-label">Status</span>
-                    <span class="stat-value" style="color:${statusColor}; font-size:11px;">${status}</span>
+                    <span class="stat-value" style="color:${statusColor};"><small>${status}</small></span>
+                    ${holdNote}
                 </div>
             </div>
             <div style="background:#f8fafc; padding:12px; border-radius:10px; border:1px solid #e2e8f0; position:relative;">
@@ -1910,7 +2191,12 @@ if (serviceInfo.isEnding) {
                     <div style="font-size:11px; color:#475569; font-weight:500;">${nextPatternDisplay}</div>
                     <div style="font-size:10px; color:${routeColor}; font-weight:800;">${bayNote}</div>
                 </div>
-                <div style="font-size:9px; color:#94a3b8; margin-top:10px; text-align:right; font-weight:700;">${timeLabel}</div>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-top:10px;">
+    <div id="signal-warning-${busId}" style="font-size:9px; font-weight:800; padding:2px 6px; border-radius:4px; ${secondsAgo > 30 ? 'background:#fee2e2; color:#ef4444;' : 'background:#f0fdf4; color:#22c55e;'}">
+        ${secondsAgo > 30 ? 'NO DATA' : 'LIVE'}
+    </div>
+    <div style="font-size:9px; color:#94a3b8; font-weight:700;">${timeLabel}</div>
+</div>
             </div>
         </div>`;
 }
@@ -1941,7 +2227,7 @@ function checkSpatialDistance(busLat, busLon) {
         const d = busLatLng.distanceTo(points[i]);
         if (d < minDistance) minDistance = d;
     }
-    return minDistance > 100; // Off-Route if > 120 meters from line
+    return minDistance > 120; // Off-Route if > 120 meters from line
 }
 
 /* --- ADD TO <script> --- */
@@ -2039,21 +2325,24 @@ function getDistanceAlongRoute(shape, startLat, startLon, endLat, endLon) {
             const listDiv = document.getElementById(`list-${r}`);
             let html = "";
 
-            routes[r].buses.forEach(b => {
+routes[r].buses.forEach(b => {
                 const selectedClass = (b.id === selectedBusId) ? "selected" : "";
-               
                 const accTag = isAccordion(b.id) ? `<span style="font-size:0.7em; background:#333; color:#fff; padding:1px 3px; border-radius:3px; margin-left:4px;">ARTIC</span>` : "";
                
+                const isGhost = b.id.includes("SCHED");
+                const paxText = isGhost ? "---" : (b.pax > 150 ? "!" : b.pax + " pax");
+                const ghostClass = isGhost ? "style='opacity:0.6; font-style:italic;'" : "";
+                const ghostLabel = isGhost ? "<span class='tag ghost-tag' style='font-size:8px; margin-left:5px;'>SCHEDULED ONLY</span>" : "";
+
+                // Fix: Initialize extraStatus BEFORE using it in the template string
                 let extraStatus = "";
-               
                 if (b.isTimePoint && b.isStopped) extraStatus += `<span class="tc-badge">HOLD</span>`;
-               
                 if (b.isLR) extraStatus += `<span class="lr-badge">LAST RUN</span>`;
 
-                html += `<div class="bus-item ${selectedClass}" onclick="selectBus('${b.id}', '${r}', '${b.pattern}')">
+                html += `<div class="bus-item ${selectedClass}" ${ghostClass} onclick="${isGhost ? '' : `selectBus('${b.id}', '${r}', '${b.pattern}')`}">
                             <div style="display:flex; justify-content:space-between;">
-                                <span><b>Bus ${b.id}</b> ${accTag} ${extraStatus}</span>
-                                <span style="font-size:0.8em; color:#888;">${b.pax} pax</span>
+                                <span><b>${isGhost ? 'Scheduled' : 'Bus ' + b.id}</b> ${accTag} ${extraStatus} ${ghostLabel}</span>
+                                <span style="font-size:0.8em; color:#888;">${paxText}</span>
                             </div>
                             <div class="bus-ptrn">${b.pattern}</div>
                         </div>`;
@@ -2162,34 +2451,63 @@ async function toggleAllRoutes(stopCode, currentRoute) {
     }
 }
 
-/* --- ADD TO BOTTOM OF SCRIPT --- */
-function predictBusMotion() {
-    const now = Date.now();
-    Object.values(busMarkers).forEach(m => {
-        if (!m.predictionData || m.predictionData.speed < 1) return;
-
-        const elapsed = (now - m.predictionData.lastUpdate) / 1000;
-        if (elapsed > 10) return; // Prevent "ghosting" if data is too old
-
-        const speedMps = m.predictionData.speed * 0.44704;
-        const distMeters = speedMps * elapsed;
-        const headingRad = (m.predictionData.heading - 90) * (Math.PI / 180);
-
-        // Calculate new predicted coordinates (Dead Reckoning)
-        const lat = m.predictionData.lastLat + (distMeters * Math.sin(headingRad)) / 111320;
-        const lon = m.predictionData.lastLon + (distMeters * Math.cos(headingRad)) / (111320 * Math.cos(m.predictionData.lastLat * Math.PI / 180));
-
-        m.setLatLng([lat, lon]);
-    });
-    requestAnimationFrame(predictBusMotion);
-}
-// Start the smooth motion engine
-// predictBusMotion();
+let lastFrameTime = Date.now();
 
     updateSystem();
-    setInterval(updateSystem, 2000);
+    setInterval(updateSystem, 1000);
     checkAlerts();
 setInterval(checkAlerts, 120000);
+
+/* --- ADD TO BOTTOM OF index.html <script> --- */
+
+/* --- ADD TO <script> --- */
+function shouldRouteBeRunning(routeId) {
+    const logic = btOperationalLogic[routeId];
+    if (!logic || !logic.ends || !logic.ends[inferredServiceLevel]) return false;
+
+    const now = new Date();
+    const [endH, endM] = logic.ends[inferredServiceLevel].split(':').map(Number);
+    let endTotal = endH * 60 + endM;
+    let nowTotal = now.getHours() * 60 + now.getMinutes();
+
+    if (endH < 4) endTotal += 1440; 
+    if (now.getHours() < 4) nowTotal += 1440;
+
+    // Start checking for service roughly at 7:00 AM (420 mins)
+    return (nowTotal >= 420 && nowTotal < endTotal);
+}
+
+const tracker = {
+    userId: localStorage.getItem('bt_user_id') || 'u-' + Math.random().toString(36).substr(2, 9),
+    sessionId: 's-' + Math.random().toString(36).substr(2, 9),
+    
+    init() {
+        // Save user ID so we recognize them next time they return
+        localStorage.setItem('bt_user_id', this.userId);
+        
+        // 1. Log the initial view
+        this.send('/log_session', { userId: this.userId, sessionId: this.sessionId });
+        
+        // 2. Start the heartbeat (Every 30 seconds)
+        setInterval(() => {
+            this.send('/heartbeat', { sessionId: this.sessionId });
+        }, 30000);
+    },
+
+    async send(endpoint, data) {
+        try {
+            await fetch(`${API}${endpoint}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+        } catch (e) { /* Fail silently to not disturb user */ }
+    }
+};
+
+// Start tracking immediately
+tracker.init();
+
 
 </script>
 </body>
