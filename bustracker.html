@@ -1254,28 +1254,33 @@ function predictNextDeparture(cachedSchedule, stopLat, stopLon, currentRouteId, 
 
 let bestBus = null;
     let bestMatch = null;
+    let minSeconds = Infinity; // NEW: Track the absolute closest bus
     
-    // FIX 1: First valid bus gets the first chronological schedule slot IN THE FUTURE
+    // THE FIX: Evaluate ALL valid buses and pick the one with the lowest physical ETA.
+    // This prevents a distant parked bus from "stealing" the prediction from a closer active bus.
     for (const bus of validBuses) {
         const seconds = calculatePrecisionETA(bus, stopLat, stopLon, currentStopSequence, bus.stopSequence, routeShape, activeBuses);
         if (seconds === null || seconds < 0) continue;
         
         const loopEtaTime = new Date(now.getTime() + (seconds * 1000));
 
-        // Enforce that the matched schedule is the NEXT departure (allow 60s grace period)
-// FIX 1: Allow matching schedules up to 7 minutes in the past (so late buses don't skip)
+        // Match the schedule slot
         const firstScheduleMatch = localSchedule.find(schedEntry => 
             (!showAllRoutes || schedEntry.route === bus.route) &&
             (schedEntry.date.getTime() >= now.getTime() - (7 * 60000)) 
         );
+        
         if (firstScheduleMatch) {
-            bestBus = { ...bus, seconds, etaTime: loopEtaTime };
-            bestMatch = firstScheduleMatch;
-            break; 
+            // Instead of breaking instantly, check if this bus is closer than the last one we checked
+            if (seconds < minSeconds) {
+                minSeconds = seconds;
+                bestBus = { ...bus, seconds, etaTime: loopEtaTime };
+                bestMatch = firstScheduleMatch;
+            }
         }
     }
 
-if (!bestBus || !bestMatch) {
+    if (!bestBus || !bestMatch) {
         console.groupEnd();
         
         // --- THE FIX: GHOST SCHEDULE SNAP ---
