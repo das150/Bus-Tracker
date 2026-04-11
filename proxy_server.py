@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 import requests
 import xml.etree.ElementTree as ET
@@ -109,6 +109,15 @@ def fetch_xml_departures(stop_code):
     except Exception as e:
         print(f"❌ XML Parsing Error: {e}")
         return []
+
+
+@app.route('/')
+def index():
+    return send_from_directory('.', 'bustracker.html')
+
+@app.route('/bustracker.html')
+def serve_file():
+    return send_from_directory('.', 'bustracker.html')
 
 # --- ENDPOINTS ---
 @app.route('/log_session', methods=['POST'])
