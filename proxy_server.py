@@ -110,6 +110,52 @@ def fetch_xml_departures(stop_code):
         print(f"❌ XML Parsing Error: {e}")
         return []
 
+def fetch_xml_routes():
+    try:
+        url = f"{XML_BASE}/GetScheduledRoutes"
+        params = {
+            'stopCode': '', 
+            'serviceDate': datetime.now().strftime("%Y-%m-%d")
+        }
+        
+        resp = requests.get(url, params=params, timeout=10)
+        if resp.status_code != 200: return {}
+
+        root = ET.fromstring(resp.content)
+        routes_meta = {}
+
+        def find_val(parent, tag_name):
+            for child in parent:
+                if child.tag.split('}')[-1] == tag_name:
+                    return child.text
+            return ""
+
+        for node in root.iter():
+            tag_local = node.tag.split('}')[-1]
+            
+            # The XML container is 'ScheduledRoutes'
+            if tag_local == 'ScheduledRoutes':
+                # Matching your RAW XML tags exactly now:
+                s_name  = find_val(node, 'RouteShortName') # Capital N
+                f_name  = find_val(node, 'RouteName')      # Not RouteFullname
+                color   = find_val(node, 'RouteColor')     # Not PrimaryColor
+                service = find_val(node, 'ServiceLevel')
+                pdf     = find_val(node, 'RouteURL')       # Not SchedulePDF
+
+                if s_name:
+                    routes_meta[s_name] = {
+                        "name": f_name or s_name,
+                        "color": f"#{color}" if color else "#630031",
+                        "serviceLevel": (service or "FULL SERVICE").upper(),
+                        "pdf": pdf or "#"
+                    }
+
+        print(f"✅ Success! Parsed {len(routes_meta)} routes with correct casing.")
+        return routes_meta
+
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        return {}
 
 @app.route('/')
 def index():
@@ -179,19 +225,30 @@ def get_buses():
         return jsonify(data)
     return jsonify({"data": []})
 
+@app.route('/summary')
+def get_fleet_summary():
+    """Bypasses the 8514 bug by checking the global system summary."""
+    data = fetch_json("getSummary")
+    if data and 'data' in data:
+        # Sort by most recent update to see if the system is 'live'
+        return jsonify(data['data'])
+    return jsonify([])
+
 @app.route('/routes')
 def get_routes_list():
-    # Cache the list of routes for 24 hours (86400 seconds)
-    cached = get_cached_data('route_list', 86400)
-    if cached: return jsonify(cached)
+    # 1. Check Cache
+    cached_data, is_expired = get_cached_data('route_meta', 3600)
+    if cached_data and not is_expired: 
+        return jsonify(cached_data)
     
-    data = fetch_json("getRoutes")
-    routes = {}
-    if data and 'data' in data:
-        for r in data['data']:
-            routes[r['routeShortName']] = r['routeLongName']
-        return jsonify(set_cached_data('route_list', routes))
-    return jsonify({})
+    # 2. Fetch Fresh Data
+    meta = fetch_xml_routes()
+    if meta:
+        set_cached_data('route_meta', meta)
+        return jsonify(meta)
+    
+    # 3. Fallback to stale cache if API is down
+    return jsonify(cached_data if cached_data else {})
 
 @app.route('/alerts')
 def get_alerts():
@@ -243,7 +300,7 @@ def get_shape():
     cache_key = f"shape_{pattern}"
     
     # Shapes never really change. Cache for 24 hours.
-    data, expired = get_cached_data(cache_key, 86400)
+    data, expired = get_cached_data(cache_key, 5000)
     if data and not expired: return jsonify(data)
     
     new_data = fetch_json("getPatternPoints", {'patternName': pattern})
