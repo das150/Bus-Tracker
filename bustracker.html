@@ -24,7 +24,7 @@
             background: rgba(255,255,255,0.98); border-radius: 12px;
             box-shadow: 0 10px 30px rgba(0,0,0,0.2); z-index: 1000;
             max-height: 90vh; display: flex; flex-direction: column; overflow: hidden;
-            padding-bottom: env(safe-area-inset-bottom); /* Ensures info isn't hidden behind the iPhone home bar */
+            padding-bottom: calc(env(safe-area-inset-bottom) + 20px);
     user-select: none
         }
         /* --- REPLACE SIDEBAR & ADD DRAWER CSS in <style> --- */
@@ -127,7 +127,7 @@
 }
 
 /* Header Adjustments */
-.header { padding: 5px 20px 15px 20px; }
+.header { padding: 12px 18px; border-bottom: 1px solid #f1f5f9; background: white; }
 
 /* Desktop View Override */
 @media (min-width: 768px) {
@@ -169,13 +169,14 @@
     position: relative;
 }
 
-/* The scrolling container */
+/* Update this block in your <style> section */
 #alert-inner {
     display: inline-block;
-    padding-left: 100%; /* Start the text from the right edge */
-    animation: marquee-scroll 18s linear infinite;
+    padding-left: 100%;
+    white-space: nowrap; /* Ensures text stays in one line */
+    animation: marquee-scroll linear infinite; /* Duration removed here */
+    animation-duration: 40s; /* Default fallback */
 }
-
 /* Pause the scroll when you hover to read specific details */
 #alert-box:hover #alert-inner {
     animation-play-state: paused;
@@ -233,10 +234,19 @@
             box-shadow: inset 0 -2px 0 rgba(0,0,0,0.2);
         }
         .r-title { font-weight: 700; color: #333; flex-grow: 1; }
-        .r-count { font-size: 0.8rem; color: #888; background: #eee; padding: 2px 8px; border-radius: 10px; }
+        .r-count { 
+    font-size: 0.7rem; 
+    color: #888; 
+    background: #eee; 
+    padding: 2px 10px; 
+    border-radius: 12px;
+    font-weight: 700;
+    white-space: nowrap; /* Prevents "STARTS @ 12:45" from wrapping */
+}
+
         .bus-list { display: none; border-top: 1px solid #eee; }
         .route-group.open .bus-list { display: block; }
-        .bus-item { padding: 10px 15px 10px 50px; cursor: pointer; border-bottom: 1px solid #f5f5f5; font-size: 0.9rem; color: #555; position: relative; }
+        .bus-item { padding: 10px 15px 10px; cursor: pointer; border-bottom: 1px solid #f5f5f5; font-size: 0.9rem; color: #555; position: relative; }
         .bus-item:hover { background: #fffbf0; color: var(--maroon); }
         .bus-item.selected { background: #ffebeb; border-left: 4px solid var(--maroon); font-weight: bold; }
         .bus-ptrn { font-size: 0.8rem; color: #999; display: block; margin-top: 2px; }
@@ -593,6 +603,33 @@
     background: #64748b !important;
     color: white !important;
 }
+/* --- USER LOCATION DOT --- */
+.user-location-dot {
+    background: #2563eb;
+    border: 2px solid white;
+    border-radius: 50%;
+    box-shadow: 0 0 10px rgba(37, 99, 235, 0.5);
+}
+
+/* --- TOGGLE SWITCH UI --- */
+.header-top { display: flex; justify-content: space-between; align-items: center; }
+.toggle-wrap { font-size: 9px; color: #94a3b8; font-weight: 800; gap: 6px; }
+.switch { width: 20px !important; height: 8px; margin-left: 5px; margin-right: 5px;}
+.switch input { opacity: 0; width: 0; height: 0; }
+.slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #cbd5e1; transition: .4s; border-radius: 20px; }
+.slider:before { position: absolute; content: ""; background-color: white; transition: .4s; border-radius: 50%; }
+.slider:before { height: 5px !important; width: 5px !important; left: 3px; bottom: 3px; }
+input:checked + .slider { background-color: var(--maroon) !important; }
+input:checked + .slider:before { transform: translateX(7px) !important; }
+
+/* Center Location Button */
+#locate-btn {
+    position: absolute; bottom: 95px; right: 10px; z-index: 1000;
+    background: white; border: 1px solid #ccc; border-radius: 4px; width: 34px; height: 34px;
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    font-size: 18px; color: #444; transition: background 0.2s;
+}
+#locate-btn:hover { background: #f4f4f4; }
     </style>
 </head>
 <body>
@@ -611,43 +648,77 @@
         <div id="alert-inner">Checking Alerts...</div>
     </div>
     
-    <div class="header">
+<div class="header">
+    <div class="header-top">
         <h1>Blacksburg Transit Map</h1>
-        <div class="status-txt" id="sys-status">Connecting...</div>
+        <label class="toggle-wrap">
+            All
+            <div class="switch">
+                <input type="checkbox" id="all-routes-toggle" onchange="updateSystem()">
+                <span class="slider"></span>
+            </div>
+        </label>
     </div>
+    <div class="status-txt" id="sys-status">Connecting...</div>
+</div>
     
     <div id="list-container"></div>
 </div>
 
+<button id="locate-btn" onclick="centerOnUser()" title="Center on Me">📍</button>
 <div id="map"></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-/* --- REPLACE btOperationalLogic --- */
+let routeMetadata = {}; // Single source of truth for names, colors, and status
+let inferredServiceLevel = "FULL SERVICE"; 
+let busMarkers = {};
+let userMarker = null;
+let userCoords = null;
+let selectedRouteShape = null; // Track the currently active route ID
+/**
+ * BT OPERATIONAL LOGIC - FY26 SPRING 2026 (FINAL REVISION)
+ * Captured directly from the v.3 Full, v.2 Intermediate/Reduced, and Exam cards.
+ */
 const btOperationalLogic = {
-    // PAIRINGS (The "Switch")
-    "SME": { next: "NMG", bay: "Maroon Bay 7", paired: true, ends: { "FULL SERVICE": "00:45", "REDUCED SERVICE": "21:45", "HOLIDAY SERVICE": "18:45" } },
-    "NMG": { next: "SME", bay: "Maroon Bay 7", paired: true, ends: { "FULL SERVICE": "00:45", "REDUCED SERVICE": "21:45", "HOLIDAY SERVICE": "18:45" } },
-    "SMS": { next: "SMA", bay: "Maroon Bay 6", paired: true, ends: { "FULL SERVICE": "00:45", "REDUCED SERVICE": "21:45", "HOLIDAY SERVICE": "18:45" } },
-    "SMA": { next: "SMS", bay: "Maroon Bay 6", paired: true, ends: { "FULL SERVICE": "00:45", "REDUCED SERVICE": "21:45", "HOLIDAY SERVICE": "18:45" } },
-    
-    // HETHWOOD TRANSITIONS
-    "HWA": { next: "HWC", bay: "Orange Bay 11", hTransition: "12:15", ends: { "FULL SERVICE": "12:15" } },
-    "HWB": { next: "HWC", bay: "Orange Bay 10", hTransition: "12:45", ends: { "FULL SERVICE": "12:45" } },
-    "HWC": { bay: "Orange Bay 11", multiBus: true, ends: { "FULL SERVICE": "00:45", "REDUCED SERVICE": "21:45", "HOLIDAY SERVICE": "18:45" } },
-
-    // STANDALONE / RADIUS
-    "UCB": { bay: "Orange Bay 17", multiBus: true, ends: { "FULL SERVICE": "00:45", "REDUCED SERVICE": "21:45", "HOLIDAY SERVICE": "18:45" } },
-    "TCP": { bay: "Orange Bay 13", multiBus: true, ends: { "FULL SERVICE": "00:45", "REDUCED SERVICE": "21:45", "HOLIDAY SERVICE": "18:45" } },
-    "TCR": { bay: "Orange Bay 12", multiBus: true, ends: { "FULL SERVICE": "00:45", "REDUCED SERVICE": "21:45", "HOLIDAY SERVICE": "18:45" } },
-    "PHD": { bay: "Orange Bay 18", multiBus: true, ends: { "FULL SERVICE": "00:45", "REDUCED SERVICE": "21:45" } },
-    "PRG": { bay: "Orange Bay 11", smokingGun: true, ends: { "FULL SERVICE": "21:45" } },
-    "CRB": { bay: "Orange Bay 15", smokingGun: true, ends: { "FULL SERVICE": "18:45" } },
-    "HDG": { bay: "Maroon Bay 3", ends: { "FULL SERVICE": "00:45", "REDUCED SERVICE": "21:45" } },
-    "HXP": { bay: "Maroon Bay 4", ends: { "FULL SERVICE": "00:45" } },
-    "CAS": { next: "Alternating", bay: "Bay 5/14", multiBus: true, ends: { "FULL SERVICE": "00:45", "REDUCED SERVICE": "21:45", "HOLIDAY SERVICE": "18:45" } },
-    "BMR": { bay: "Orange Bay 15", ends: { "FULL SERVICE": "21:45" } },
-    "TTT": { bay: "Squires/Christiansburg", ends: { "FULL SERVICE": "22:45" } }
+    "NMG": {
+        name: "North Main Givens",
+        bays: { "DAY": "Maroon Bay 7", "NIGHT": "Maroon Bay 6" },
+        pairedWith: "SME",
+        multiBus: true,
+        starts: { "FULL SERVICE": "07:00", "REDUCED SERVICE": "07:00", "FULL WEEKENDS": "09:30" },
+        ends: { 
+            "FULL SERVICE": { "MON_THU": "01:00", "FRI_SAT": "03:00" },
+            "REDUCED SERVICE": "22:15"
+        }
+    },
+    "SME": {
+        name: "South Main Ellett",
+        bays: { "DAY": "Maroon Bay 6", "NIGHT": "Maroon Bay 7" },
+        pairedWith: "NMG",
+        multiBus: true,
+        starts: { "FULL SERVICE": "07:00", "REDUCED SERVICE": "07:00", "FULL WEEKENDS": "09:30" },
+        ends: { 
+            "FULL SERVICE": { "MON_THU": "01:00", "FRI_SAT": "03:00" },
+            "REDUCED SERVICE": "22:15"
+        }
+    },
+    "HWA": { name: "Hethwood A", bay: "Orange Bay 11", transitionTo: "HWC", transitionTime: "12:15", starts: { "DEFAULT": "07:00" }, ends: { "FULL SERVICE": "12:15" } },
+    "HWB": { name: "Hethwood B", bay: "Orange Bay 10", transitionTo: "HWC", transitionTime: "12:45", starts: { "DEFAULT": "07:00" }, ends: { "FULL SERVICE": "12:45" } },
+    "HWC": { name: "Hethwood Combined", bay: "Orange Bay 11", multiBus: true, starts: { "FULL SERVICE": "12:15", "REDUCED SERVICE": "07:00", "FULL WEEKENDS": "09:00" }, ends: { "FULL SERVICE": { "MON_THU": "01:00", "FRI_SAT": "03:00" }, "REDUCED SERVICE": "22:15" } },
+    "CAS": { name: "Campus Shuttle", isAlternating: true, bays: { "Maroon": "Maroon Bay 5", "Orange": "Orange Bay 14" }, starts: { "DEFAULT": "06:55" }, ends: { "FULL SERVICE": "03:15", "REDUCED SERVICE": "22:15" } },
+    "TTT": { name: "Two Town Trolley", bay: "Maroon Bay 2", starts: { "FULL SERVICE": "07:00", "FULL WEEKENDS": "10:00" }, ends: { "FULL SERVICE": "21:30", "REDUCED SERVICE": "21:30" } },
+    "UCB": { name: "University City Blvd", bay: "Orange Bay 17", multiBus: true, starts: { "DEFAULT": "07:00" }, ends: { "FULL SERVICE": "01:00", "REDUCED SERVICE": "22:15" } },
+    "TCR": { name: "Toms Creek Road", bay: "Orange Bay 12", multiBus: true, starts: { "DEFAULT": "07:00" }, ends: { "FULL SERVICE": "01:00", "REDUCED SERVICE": "22:15" } },
+    "TCP": { name: "Toms Creek via Progress", bay: "Orange Bay 13", multiBus: true, starts: { "DEFAULT": "07:00" }, ends: { "FULL SERVICE": "01:00", "REDUCED SERVICE": "22:15" } },
+    "PHD": { name: "Patrick Henry Drive", bay: "Orange Bay 18", starts: { "DEFAULT": "06:45" }, ends: { "FULL SERVICE": "01:00", "REDUCED SERVICE": "22:15" } },
+    "PRG": { name: "Progress Street", bay: "Orange Bay 11", starts: { "DEFAULT": "07:00" }, ends: { "FULL SERVICE": "21:45" } },
+    "HDG": { name: "Harding Avenue", bay: "Maroon Bay 3", starts: { "DEFAULT": "07:00" }, ends: { "FULL SERVICE": "01:00", "FRI_SAT": "03:00" } },
+    "HXP": { name: "Hokie Express", bay: "Maroon Bay 4", starts: { "DEFAULT": "07:00" }, ends: { "FULL SERVICE": "01:00" } },
+    "CRC": { name: "Corporate Research Center", bay: "Orange Bay 15", starts: { "DEFAULT": "07:00" }, ends: { "FULL SERVICE": "19:15" } },
+    "BMR": { name: "Beamer Way", bay: "Orange Bay 15", starts: { "DEFAULT": "07:15" }, ends: { "FULL SERVICE": "22:15" } },
+    "GRN": { name: "Explorer Green", bay: "Christiansburg", starts: { "DEFAULT": "07:00" }, ends: { "DEFAULT": "18:30" } },
+    "BLU": { name: "Explorer Blue", bay: "Christiansburg", starts: { "DEFAULT": "07:00" }, ends: { "DEFAULT": "18:30" } }
 };
 
 /* --- ADD TO SCRIPT --- */
@@ -663,34 +734,61 @@ function isActuallyLastRun(routeId, serviceLevel) {
     return (nowTotal >= (endTotal - 45)) && (nowTotal < endTotal + 15);
 }
 
-/* --- REPLACE getSpecificServiceNote --- */
-function getSpecificServiceNote(routeId, busId, currentPattern, serviceLevel) {
+function getDetailedBusContext(routeId, busId, currentPattern, serviceLevel) {
     const logic = btOperationalLogic[routeId];
     if (!logic) return { isEnding: false, note: "" };
 
     const now = new Date();
-    const nowTotal = now.getHours() * 60 + now.getMinutes() + (now.getHours() < 4 ? 1440 : 0);
+    const nowMins = now.getHours() * 60 + now.getMinutes() + (now.getHours() < 4 ? 1440 : 0);
+    const day = now.getDay(); 
+
+// 1. DYNAMIC END TIME RESOLUTION (Fixes split error)
+    const routeEnds = logic.ends[serviceLevel] || logic.ends["FULL SERVICE"] || logic.ends["DEFAULT"] || "00:00";
+    let endStr = "";
     
-    // PRIORITY 1: API "Last Run" Flag
-    const isLR = currentPattern.includes("LR") || currentPattern.toLowerCase().includes("garage");
+    if (typeof routeEnds === 'object') {
+        if ((day === 5 || day === 6) && routeEnds.FRI_SAT) endStr = routeEnds.FRI_SAT;
+        else if (day === 5 && routeEnds.FRI) endStr = routeEnds.FRI;
+        else endStr = routeEnds.MON_THU || routeEnds.DEFAULT || "01:00";
+    } else {
+        endStr = routeEnds;
+    }
 
-    // PRIORITY 2: Scheduled End Time (FY26 Route Cards)
-    // Most routes end at 12:45 AM (1485 mins) or 9:45 PM (1305 mins)
-    const endTimeStr = logic.ends[serviceLevel] || logic.ends["FULL SERVICE"] || "00:00";
-    const [endH, endM] = endTimeStr.split(':').map(Number);
-    let endTotal = endH * 60 + endM + (endH < 4 ? 1440 : 0);
+    if (!endStr || typeof endStr !== 'string') endStr = "00:00";
 
-    // If within 35 minutes of the scheduled end, force OUT OF SERVICE
-    if (isLR || (nowTotal >= (endTotal - 35))) {
+    const [eH, eM] = endStr.split(':').map(Number);
+    let endTotal = eH * 60 + eM + (eH < 4 ? 1440 : 0);
+
+    // 2. PAIRING & SWITCH LOGIC (NMG / SME)
+    if (logic.switchTime && serviceLevel === "FULL SERVICE") {
+        const [sH, sM] = logic.switchTime.split(':').map(Number);
+        const switchTotal = sH * 60 + sM;
+        if (nowMins >= switchTotal && nowMins < switchTotal + 30) {
+            return { isEnding: false, type: "SWITCH", note: `Transitioning to paired loop.` };
+        }
+    }
+
+    // 3. HETHWOOD MERGER (HWA/B -> HWC)
+    if (logic.transitionTime) {
+        const [tH, tM] = logic.transitionTime.split(':').map(Number);
+        const transTotal = tH * 60 + tM;
+        if (nowMins >= (transTotal - 20) && nowMins <= transTotal) {
+            return { isEnding: true, type: "MERGE", note: `Merging into HWC loop soon.` };
+        }
+    }
+
+    // 4. LAST RUN DETECTION
+    if (currentPattern.includes("LR") || currentPattern.toLowerCase().includes("garage") || nowMins >= (endTotal - 35)) {
         return { isEnding: true, type: "ROUTE_END", note: "Final run. Returning to Garage." };
     }
 
-    // PRIORITY 3: Individual Bus Pull-in (Frequency Reduction)
+    // 5. SHIFT CHANGE FREQUENCY DROP (Predictive)
+    const mins = now.getMinutes();
+    const isShiftWindow = (mins >= 40 && mins <= 55) || (mins >= 10 && mins <= 25);
     const busesOnRoute = Object.values(busMarkers).filter(m => m.currentRoute === routeId).length;
-    const isPullInWindow = (now.getMinutes() >= 10 && now.getMinutes() <= 25) || (now.getMinutes() >= 40 && now.getMinutes() <= 55);
     
-    if (logic.multiBus && busesOnRoute > 1 && isPullInWindow && currentPattern.toLowerCase().includes("to tc")) {
-        return { isEnding: true, type: "FREQ_DROP", note: "Bus finishing shift. Wait times will increase." };
+    if (logic.multiBus && busesOnRoute > 1 && isShiftWindow && currentPattern.toLowerCase().includes("to tc")) {
+        return { isEnding: true, type: "FREQ_DROP", note: "Shift ending. Bus pulling in soon." };
     }
 
     return { isEnding: false, note: "" };
@@ -738,34 +836,6 @@ async function autoUpdateStopIcon(marker, stopCode, stopName, isTC) {
     } catch (e) { console.error("Auto-icon update failed", e); }
 }
 
-const routeNames = {
-        "BMR": "Beamer Way",
-        "CAS": "Campus Shuttle",
-        "CRB": "Carpenter Boulevard",
-        "CRC": "Corporate Research Center",
-        "HDG": "Harding Avenue",
-        "HWA": "Hethwood A",
-        "HWB": "Hethwood B",
-        "HWC": "Hethwood Combined",
-        "HXP": "Hokie Express",
-        "MSN": "Main Street North",
-        "MSS": "Main Street South",
-        "NMG": "North Main Givens",
-        "NMP": "North Main Patrick Henry",
-        "PHB": "Patrick Henry B",
-        "PHD": "Patrick Henry Drive",
-        "PRG": "Progress Street",
-        "SMA": "South Main Airport",
-        "SME": "South Main Ellett",
-        "SMS": "South Main Southpark",
-        "TCR": "Toms Creek Road",
-        "TCP": "Toms Creek via Progress",
-        "TTT": "Two Town Trolley",
-        "UCB": "University City Blvd",
-        "BLU": "Explorer Blue",
-        "GRN": "Explorer Green"
-    };
-
     const routeColors = {
         "MSN": "#E57200", // BT Orange
         "MSS": "#630031", // BT Maroon
@@ -797,7 +867,7 @@ const routeNames = {
 
     function getRouteColor(r) { return routeColors[r] || routeColors["DEFAULT"]; }
 
-    let busMarkers = {}, busTrails = {}, shapeLayer = L.layerGroup().addTo(map), stopLayer = L.layerGroup().addTo(map);
+    let busTrails = {}, shapeLayer = L.layerGroup().addTo(map), stopLayer = L.layerGroup().addTo(map);
     let activeRoutes = {}, openRoute = null, selectedBusId = null;
 
     // --- UTILS ---
@@ -838,9 +908,12 @@ async function updateSystem() {
     try {
         const res = await fetch(`${API}/buses`);
         const json = await res.json();
+        const showAll = document.getElementById('all-routes-toggle').checked;
+        const selectedRoute = (selectedBusId && busMarkers[selectedBusId]) ? busMarkers[selectedBusId].currentRoute : currentSelectedRoute;
         
         // 1. Get Raw Vehicles
         let vehicles = json.data || [];
+
         const now = new Date();
 
         // --- ✅ FIX: GHOST BUS FILTER ---
@@ -896,6 +969,14 @@ const adherence = state.deviation || 0;
             newRouteData[route].buses.push({ id, pattern, pax, isStopped, speed: speedMph, percentCap, isTimePoint, isLR });
 const versionTs = bus.states && bus.states[0] ? bus.states[0].version : Date.now();
             updateMarker(id, route, lat, lon, heading, pattern, pax, speedMph, adherence, isStopped, percentCap, isTimePoint, isLR, versionTs);
+
+            const m = busMarkers[bus.id];
+            if (m && m.getElement()) {
+                const shouldHide = (!showAll && selectedRoute && route !== selectedRoute);
+                m.getElement().style.opacity = shouldHide ? "0" : "1";
+                m.getElement().style.pointerEvents = shouldHide ? "none" : "auto";
+                if (busTrails[bus.id]) busTrails[bus.id].setStyle({opacity: shouldHide ? 0 : 0.25});
+            }
         });
 
         // 2. CLEANUP (Removes markers for filtered/ghost buses)
@@ -914,10 +995,10 @@ const versionTs = bus.states && bus.states[0] ? bus.states[0].version : Date.now
                 }
 
                 if (selectedBusId === existingId) {
-                    shapeLayer.clearLayers();
-                    stopLayer.clearLayers();
+                    // shapeLayer.clearLayers();
+                    // stopLayer.clearLayers();
                     selectedBusId = null;
-                    currentSelectedRoute = null;
+                    // currentSelectedRoute = null;
                     document.getElementById('sys-status').innerText = "Bus went Out of Service";
                 }
     } else {
@@ -938,87 +1019,194 @@ const versionTs = bus.states && bus.states[0] ? bus.states[0].version : Date.now
 });
 
 Object.keys(btOperationalLogic).forEach(rId => {
-            if (!newRouteData[rId] && shouldRouteBeRunning(rId)) {
-                newRouteData[rId] = { 
-                    count: "SCHED", // Display "SCHED" instead of "0"
-                    buses: [{
-                        id: "SCHED-" + rId,
-                        pattern: "No Live Tracking",
-                        isGhost: true,
-                        pax: 0
-                    }]
-                };
-            }
-        });
+    if (!newRouteData[rId] && (showAll || shouldRouteBeRunning(rId))) {
+        const logic = btOperationalLogic[rId];
+        const now = new Date();
+        const nowMins = now.getHours() * 60 + now.getMinutes() + (now.getHours() < 4 ? 1440 : 0);
+        const day = now.getDay();
+
+        // 1. Resolve Start Time with triple-fallback (Current SL -> Default -> 7AM)
+        const startStr = logic.starts[inferredServiceLevel] || logic.starts["DEFAULT"] || "07:00";
+        const [sH, sM] = startStr.split(':').map(Number);
+        const startTotal = sH * 60 + sM;
+
+        // 2. Resolve End Time with triple-fallback
+        // We ensure routeEnds is NEVER undefined by falling back to "00:00"
+        const routeEnds = logic.ends[inferredServiceLevel] || logic.ends["FULL SERVICE"] || logic.ends["DEFAULT"] || "00:00";
+        
+        let endStr = "";
+        if (typeof routeEnds === 'object') {
+            // Handle MON_THU / FRI_SAT objects
+            if ((day === 5 || day === 6) && routeEnds.FRI_SAT) endStr = routeEnds.FRI_SAT;
+            else if (day === 5 && routeEnds.FRI) endStr = routeEnds.FRI;
+            else endStr = routeEnds.MON_THU || routeEnds.DEFAULT || "01:00";
+        } else {
+            endStr = routeEnds;
+        }
+
+        // 3. Final Safety Check: If endStr somehow remained non-string
+        if (!endStr || typeof endStr !== 'string') endStr = "00:00";
+
+        const [eH, eM] = endStr.split(':').map(Number);
+        let endTotal = eH * 60 + eM + (eH < 4 ? 1440 : 0);
+
+        // 4. Determine Final Label
+        let statusLabel = "SCHED"; 
+        if (nowMins < startTotal) {
+            statusLabel = `STARTS @ ${startStr}`;
+        } else if (nowMins >= endTotal) {
+            statusLabel = "ENDED";
+        }
+
+        newRouteData[rId] = { 
+            count: statusLabel, 
+            buses: [{ id: "SCHED-" + rId, pattern: rId, isGhost: true, pax: 0 }]
+        };
+    }
+});
 
         renderSidebar(newRouteData);
         updateServiceLevelDisplay(Object.keys(newRouteData));
-
     } catch (e) { console.error(e); }
-    
+}
+
+document.getElementById('all-routes-toggle').onchange = () => {
+    toggleAllMapShapes();
+    updateSystem(); // Immediately refresh bus visibility
+};
+
+// --- FIX: Robust Route Loading in index.html ---
+
+let routeNames = {}; 
+
+async function loadRouteMetadata() {
+    try {
+        console.log("📡 Syncing Route Metadata...");
+        const res = await fetch(`${API}/routes`);
+        routeMetadata = await res.json();
+
+        if (!routeMetadata["BMR"]) routeMetadata["BMR"] = { name: "Beamer Way", pdf: "http://www.bt4uclassic.org/schedules/bmr.pdf", serviceLevel: "FULL SERVICE" };
+        else if (routeMetadata["BMR"]) routeMetadata["BMR"].pdf = "http://www.bt4uclassic.org/schedules/bmr.pdf";
+
+        if (!routeMetadata["GRN"]) routeMetadata["GRN"] = { name: "Explorer Green", pdf: "http://www.bt4uclassic.org/schedules/grn.pdf", serviceLevel: "FULL SERVICE" };
+        if (!routeMetadata["BLU"]) routeMetadata["BLU"] = { name: "Explorer Blue", pdf: "http://www.bt4uclassic.org/schedules/blu.pdf", serviceLevel: "FULL SERVICE" };
+        
+        const count = Object.keys(routeMetadata).length;
+        if (count > 0) {
+            console.log(`✅ Metadata Sync Complete: ${count} routes`);
+            // Force a service level check now that we have data
+            updateServiceLevelDisplay(Object.keys(routeMetadata));
+        } else {
+            console.warn("⚠️ Metadata returned 0 routes. Check Python console.");
+        }
+    } catch (e) {
+        console.error("❌ Metadata sync failed, using hardcoded fallback:", e);
+        // Fallback names so the UI doesn't look broken
+        routeNames = routeNames = {
+
+        "BMR": "Beamer Way",
+
+        "CAS": "Campus Shuttle",
+
+        "CRB": "Carpenter Boulevard",
+
+        "CRC": "Corporate Research Center",
+
+        "HDG": "Harding Avenue",
+
+        "HWA": "Hethwood A",
+
+        "HWB": "Hethwood B",
+
+        "HWC": "Hethwood Combined",
+
+        "HXP": "Hokie Express",
+
+        "MSN": "Main Street North",
+
+        "MSS": "Main Street South",
+
+        "NMG": "North Main Givens",
+
+        "NMP": "North Main Patrick Henry",
+
+        "PHB": "Patrick Henry B",
+
+        "PHD": "Patrick Henry Drive",
+
+        "PRG": "Progress Street",
+
+        "SMA": "South Main Airport",
+
+        "SME": "South Main Ellett",
+
+        "SMS": "South Main Southpark",
+
+        "TCR": "Toms Creek Road",
+
+        "TCP": "Toms Creek via Progress",
+
+        "TTT": "Two Town Trolley",
+
+        "UCB": "University City Blvd",
+
+        "BLU": "Explorer Blue",
+
+        "GRN": "Explorer Green"
+
+    };
+
+    } finally {
+        // Always start the system update, even if we use fallback names
+        updateSystem();
+    }
 }
 
 /* --- ADD TO SCRIPT --- */
-/* --- REPLACE updateServiceLevelDisplay and add Global Variable --- */
-let inferredServiceLevel = "FULL SERVICE"; // Global state
-
 /* --- REPLACE updateServiceLevelDisplay --- */
 function updateServiceLevelDisplay(activeRouteIds) {
     const slText = document.getElementById('sl-text');
     const slDot = document.getElementById('sl-dot');
-    const routes = new Set(activeRouteIds);
-    const now = new Date();
-    const day = now.getDay();
-    const hour = now.getHours();
-    const nowTotal = hour * 60 + now.getMinutes() + (hour < 4 ? 1440 : 0);
+    
+    // Grab metadata from the first active route found
+    const firstActive = activeRouteIds.find(rid => routeMetadata[rid]);
+    
+    if (firstActive && routeMetadata[firstActive]) {
+        const status = routeMetadata[firstActive].serviceLevel; // "FULL SERVICE"
+        inferredServiceLevel = status; 
 
-    // 1. DEDUCTION: Smoking Gun Detection (CRB/PHB/PRG/HWA = Full)
-    const isFullService = routes.has("CRB") || routes.has("PHB") || routes.has("PRG") || routes.has("HWA") || routes.has("HXP");
-    const isReducedService = routes.has("HWC") && !isFullService;
-
-    // 2. PERSISTENCE: Don't downgrade service levels after 9:00 PM (1320 mins)
-    // This stops "Holiday Service" from appearing when buses go to the garage
-    if (isFullService) {
-        inferredServiceLevel = (day === 0 || day === 6) ? "FULL WEEKEND" : "FULL SERVICE";
-        slDot.className = "sl-indicator sl-full";
-    } else if (isReducedService) {
-        if (nowTotal < 1320 || inferredServiceLevel === "REDUCED SERVICE") {
-            inferredServiceLevel = "REDUCED SERVICE";
-            slDot.className = "sl-indicator sl-reduced";
+        slText.innerText = status;
+        
+        if (status.includes("FULL")) {
+            slDot.className = "sl-indicator sl-full"; // Green
+        } else if (status.includes("REDUCED")) {
+            slDot.className = "sl-indicator sl-reduced"; // Amber
+        } else {
+            slDot.className = "sl-indicator sl-holiday"; // Red
         }
-    } else if (routes.size > 0 && routes.size < 5 && nowTotal > 480 && nowTotal < 1200) {
-        // Holiday detection only active between 8 AM and 8 PM
-        inferredServiceLevel = "HOLIDAY SERVICE";
-        slDot.className = "sl-indicator sl-holiday";
     }
-
-    // 3. "ENDING SOON" LOGIC: System-wide alerts based on schedule windows
-    let suffix = "";
-    if (routes.size > 0) {
-        // Flag ending soon if within 45 minutes of scheduled stop
-        if (inferredServiceLevel.includes("FULL") && nowTotal >= 1410) suffix = " - SERVICE ENDING";
-        else if (inferredServiceLevel === "REDUCED SERVICE" && nowTotal >= 1275) suffix = " - SERVICE ENDING";
-        else if (inferredServiceLevel === "HOLIDAY SERVICE" && nowTotal >= 1095) suffix = " - SERVICE ENDING";
-    } else {
-        suffix = " (OFFLINE)";
-    }
-
-    if (slText) slText.innerText = inferredServiceLevel + suffix;
 }
-    function clearSelection() {
-        selectedBusId = null;
-        openRoute = null;
-        
-        shapeLayer.clearLayers();
-        stopLayer.clearLayers();
-        
-        document.querySelectorAll('.bus-item').forEach(el => el.classList.remove('selected'));
-        document.querySelectorAll('.route-group').forEach(el => el.classList.remove('open'));
-        
-        if (liveEtaTimer) clearInterval(liveEtaTimer);
-        
-        document.getElementById('sys-status').innerText = "Selection Cleared";
-    }
+function clearSelection() {
+    selectedBusId = null;
+    currentSelectedRoute = null;
+    openRoute = null;
+    shapeLayer.clearLayers();
+    stopLayer.clearLayers();
+    
+    // Reset all bus visibility when clicking away
+    Object.values(busMarkers).forEach(m => {
+        if (m.getElement()) {
+            m.getElement().style.opacity = "1";
+            m.getElement().style.pointerEvents = "auto";
+        }
+    });
+    Object.values(busTrails).forEach(t => t.setStyle({opacity: 0.25}));
+    
+    document.querySelectorAll('.bus-item').forEach(el => el.classList.remove('selected'));
+    document.querySelectorAll('.route-group').forEach(el => el.classList.remove('open'));
+    if (liveEtaTimer) clearInterval(liveEtaTimer);
+    document.getElementById('sys-status').innerText = "Selection Cleared";
+}
 
 /* --- REPLACE checkAlerts() FUNCTION --- */
 let lastAlertHash = ""; // Global variable to track alert changes
@@ -1030,19 +1218,32 @@ async function checkAlerts() {
         const alertBox = document.getElementById('alert-box');
         
         if (alerts && alerts.length > 0) {
-            // Create a unique string representing the current state of alerts
             const fullAlertText = alerts.map(a => `${a.title}: ${a.message}`).join(' | ');
             const currentHash = fullAlertText;
 
-            // ONLY update the DOM if the alerts have actually changed
             if (currentHash !== lastAlertHash) {
                 alertBox.style.display = 'block';
-                alertBox.innerHTML = `<div id="alert-inner">⚠️ ${fullAlertText}</div>`;
+                // Re-render the inner div
+                alertBox.innerHTML = `<div id="alert-inner">${fullAlertText}</div>`;
                 alertBox.title = alerts.map(a => `${a.title}: ${a.message}`).join('\n\n');
                 lastAlertHash = currentHash;
+
+                // --- DYNAMIC SPEED CALCULATION ---
+                const inner = document.getElementById('alert-inner');
+                // Wait a moment for the browser to calculate the width of the new text
+                setTimeout(() => {
+                    const scrollSpeed = 150; // Pixels per second. Increase for faster, decrease for slower.
+                    const textWidth = inner.offsetWidth;
+                    const containerWidth = alertBox.offsetWidth;
+                    
+                    // The animation moves the text its own width plus the container width
+                    const totalDistance = textWidth + containerWidth;
+                    const duration = totalDistance / scrollSpeed;
+                    
+                    inner.style.animationDuration = `${duration}s`;
+                }, 50);
             }
         } else {
-            // Clear if no alerts exist
             if (lastAlertHash !== "") {
                 alertBox.style.display = 'none';
                 alertBox.innerHTML = "";
@@ -1424,26 +1625,29 @@ if (!window.etaHistory) window.etaHistory = {};
 }
     let liveEtaTimer = null;
 
-    async function selectBus(id, route, patternName) {
-        selectedBusId = id;
-        openRoute = route;
-        currentSelectedRoute = route;
-        if (liveEtaTimer) clearInterval(liveEtaTimer);
+async function selectBus(id, route, patternName) {
+    selectedBusId = id;
+    openRoute = route;
+    currentSelectedRoute = route;
+    if (liveEtaTimer) clearInterval(liveEtaTimer);
 
-        document.getElementById('sidebar').classList.add('open');
+    document.getElementById('sidebar').classList.add('open');
     hapticFeedback('medium');
 
-        shapeLayer.clearLayers();
-        stopLayer.clearLayers();
-       
-        if (busMarkers[id]) {
-            map.closePopup();
-            busMarkers[id].setZIndexOffset(1000);
-            map.flyTo(busMarkers[id].getLatLng(), 16, { animate: true, duration: 0.5 });
-        }
+    shapeLayer.clearLayers();
+    stopLayer.clearLayers();
+    
+    // Check if a physical marker exists
+    if (busMarkers[id]) {
+        map.closePopup();
+        busMarkers[id].setZIndexOffset(1000);
+        map.flyTo(busMarkers[id].getLatLng(), 16, { animate: true, duration: 0.5 });
+    } else {
+        // GHOST BUS: Fly to a default central view (e.g., Drillfield)
+        map.flyTo([37.2275, -80.4220], 14); 
+    }
 
-        document.getElementById('sys-status').innerText = `Loading Route...`;
-
+    document.getElementById('sys-status').innerText = `Loading ${route} Route...`;
         try {
             const [shapeRes, _] = await Promise.all([
                 fetch(`${API}/route_shape?pattern=${encodeURIComponent(patternName)}`),
@@ -2081,16 +2285,16 @@ let alertBanner = "";
     const loadColor = (percentCap > 85 || isDataErr) ? "#d32f2f" : "#64748b";
 
     // 4. STATUS & SPATIAL LOGIC
-    let status = isStopped ? (isTimePoint ? "TIMECHECK" : "AT STOP") : "EN ROUTE";
+    let status = isStopped ? (isTimePoint ? "timecheck" : "at stop") : "en route";
     let statusColor = routeColor; // Match route color at stops isStopped ? routeColor : 
 
     if (speed > 5) {
-        status = "EN ROUTE";
+        status = "en route";
     }
     
     // Spatial Off-Route Detection (requires checkSpatialDistance helper)
     if (typeof checkSpatialDistance === "function" && checkSpatialDistance(lat, lon)) {
-        status = "OFF ROUTE"; statusColor = "#d32f2f";
+        status = "off route"; statusColor = "#d32f2f";
     }
 
     // --- 2. LOGIC: TIMECHECK COUNTDOWN ---
@@ -2102,7 +2306,7 @@ let alertBanner = "";
             const mins = Math.abs(Math.round(adNum));
             holdNote = `<div style="font-size:9px; color:${routeColor};">(${mins})</div>`;
         } else {
-            holdNote = `<div style="font-size:9px; color:#64748b;">DEPARTING (${adherence})</div>`;
+            holdNote = `<div style="font-size:9px; color:#64748b;">Departing (${adherence})</div>`;
         }
     }
 
@@ -2110,7 +2314,7 @@ let alertBanner = "";
     const isLR = currentPattern.includes("LR");
     const isGoingGarage = currentPattern.toLowerCase().includes("garage") || currentPattern.toLowerCase().includes("out of service");
     
-const serviceInfo = getSpecificServiceNote(currentRoute, busId, currentPattern, inferredServiceLevel);
+const serviceInfo = getDetailedBusContext(currentRoute, busId, currentPattern, inferredServiceLevel);
 
 if (serviceInfo.isEnding) {
         if (serviceInfo.type === "ROUTE_END") {
@@ -2160,6 +2364,9 @@ if (serviceInfo.isEnding) {
         } 
     }
 
+const metadata = routeMetadata[currentRoute];
+const scheduleUrl = (metadata && metadata.pdf) ? metadata.pdf : (currentRoute === "BMR" ? "http://www.bt4uclassic.org/schedules/bmr.pdf" : "#");
+
     return `
         <div class="pop-h" style="background:${routeColor}">${currentRoute} • Bus ${busId}</div>
         <div class="pop-b">
@@ -2168,7 +2375,7 @@ if (serviceInfo.isEnding) {
                 <div class="bus-stat">
                     <svg width="24" height="24" viewBox="2.5 2.5 19 19" fill="none" stroke="${paceColor}" stroke-width="2.5"><path d="M4.5 18a8.5 8.5 0 1 1 15 0"/><path d="m12 14 4-4"/><circle cx="12" cy="14" r="1"/></svg>
                     <span class="stat-label">Speed</span>
-                    <span class="stat-value">${displaySpeed} <small>MPH</small></span>
+                    <span class="stat-value">${displaySpeed} <small>mph</small></span>
                     <div class="pace-gauge"><div class="pace-fill" style="width:${paceWidth}%; background:${paceColor}"></div></div>
                 </div>      
                 <div class="bus-stat">
@@ -2176,8 +2383,8 @@ if (serviceInfo.isEnding) {
                         <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
                     </svg>
                     <span class="stat-label">Load</span>
-                    <span class="stat-value" style="color:${loadColor}">${cleanPax} <small>PAX</small></span>
-                    <span style="font-size:9px; color:#94a3b8; font-weight:700;">${isDataErr ? 'Sensor Error' : percentCap + '% CAP'}</span>
+                    <span class="stat-value" style="color:${loadColor}">${cleanPax} <small>pax</small></span>
+                    <span style="font-size:9px; color:#94a3b8; font-weight:700;">${isDataErr ? 'Sensor Error' : percentCap + '% cap'}</span>
                 </div>
                 <div class="bus-stat">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${statusColor}" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -2201,6 +2408,12 @@ if (serviceInfo.isEnding) {
         ${secondsAgo > 30 ? 'NO DATA' : 'LIVE'}
     </div>
     <div style="font-size:9px; color:#94a3b8; font-weight:700;">${timeLabel}</div>
+</div>
+<a href="${scheduleUrl}" target="_blank" style="text-decoration:none;">
+        <button style="width:100%; margin-top:10px; padding:8px; background:#f1f5f9; border:1px solid #cbd5e1; border-radius:8px; color:#475569; font-size:10px; font-weight:700; cursor:pointer;">
+            VIEW ${currentRoute} TIMETABLE (PDF)
+        </button>
+    </a>
 </div>
             </div>
         </div>`;
@@ -2310,7 +2523,8 @@ function getDistanceAlongRoute(shape, startLat, startLon, endLat, endLon) {
         if (container.childElementCount !== keys.length) {
             container.innerHTML = "";
             keys.forEach(r => {
-                const fullName = routeNames[r] || `Route ${r}`;
+                const meta = routeMetadata[r];
+            const fullName = (meta && meta.name) ? meta.name : (routeNames[r] || `Route ${r}`);
                 const color = getRouteColor(r);
                 
                 container.innerHTML += `
@@ -2335,6 +2549,7 @@ routes[r].buses.forEach(b => {
                 const accTag = isAccordion(b.id) ? `<span style="font-size:0.7em; background:#333; color:#fff; padding:1px 3px; border-radius:3px; margin-left:4px;">ARTIC</span>` : "";
                
                 const isGhost = b.id.includes("SCHED");
+                const clickHandler = `selectBus('${b.id}', '${r}', '${b.pattern}')`; // Enable for all
                 const paxText = isGhost ? "---" : (b.pax > 150 ? "!" : b.pax + " pax");
                 const ghostClass = isGhost ? "style='opacity:0.6; font-style:italic;'" : "";
                 const ghostLabel = isGhost ? "<span class='tag ghost-tag' style='font-size:8px; margin-left:5px;'>SCHEDULED ONLY</span>" : "";
@@ -2344,13 +2559,13 @@ routes[r].buses.forEach(b => {
                 if (b.isTimePoint && b.isStopped) extraStatus += `<span class="tc-badge">HOLD</span>`;
                 if (b.isLR) extraStatus += `<span class="lr-badge">LAST RUN</span>`;
 
-                html += `<div class="bus-item ${selectedClass}" ${ghostClass} onclick="${isGhost ? '' : `selectBus('${b.id}', '${r}', '${b.pattern}')`}">
-                            <div style="display:flex; justify-content:space-between;">
-                                <span><b>${isGhost ? 'Scheduled' : 'Bus ' + b.id}</b> ${accTag} ${extraStatus} ${ghostLabel}</span>
-                                <span style="font-size:0.8em; color:#888;">${paxText}</span>
-                            </div>
-                            <div class="bus-ptrn">${b.pattern}</div>
-                        </div>`;
+html += `<div class="bus-item ${selectedClass}" ${ghostClass} onclick="${clickHandler}">
+            <div style="display:flex; justify-content:space-between;">
+                <span><b>${isGhost ? 'Scheduled' : 'Bus ' + b.id}</b> ${accTag} ${extraStatus} ${ghostLabel}</span>
+                <span style="font-size:0.8em; color:#888;">${paxText}</span>
+            </div>
+            <div class="bus-ptrn">${b.pattern}</div>
+        </div>`;
             });
             listDiv.innerHTML = html;
         });
@@ -2424,12 +2639,45 @@ function handleDragEnd() {
     }
 }
 
-// Attach listeners to both handle and header for easier grabbing
 [dragHandle, header].forEach(el => {
     el.addEventListener('touchstart', handleDragStart, { passive: true });
     el.addEventListener('touchmove', handleDragMove, { passive: true });
     el.addEventListener('touchend', handleDragEnd);
 });
+
+let allShapesLayer = L.layerGroup().addTo(map);
+
+async function toggleAllMapShapes() {
+    const toggle = document.getElementById('all-routes-toggle');
+    localStorage.setItem('all_routes_enabled', toggle.checked); // Remember state
+    
+    allShapesLayer.clearLayers();
+    if (!toggle.checked) return;
+
+    Object.keys(btOperationalLogic).forEach(async (rId) => {
+        const patterns = [rId, `${rId} - Loop`, `${rId}-Loop`].slice(0, 2);
+        for (let pName of patterns) {
+            try {
+                const res = await fetch(`${API}/route_shape?pattern=${encodeURIComponent(pName)}`);
+                const json = await res.json();
+                if (json.shape && json.shape.length > 0) {
+                    L.polyline(json.shape, { color: getRouteColor(rId), weight: 3, opacity: 0.3 }).addTo(allShapesLayer);
+                    break;
+                }
+            } catch(e) {}
+        }
+    });
+}
+
+// Add to your initialization (bottom of script)
+const savedState = localStorage.getItem('all_routes_enabled') === 'true';
+document.getElementById('all-routes-toggle').checked = savedState;
+if (savedState) toggleAllMapShapes();
+
+document.getElementById('all-routes-toggle').onchange = () => {
+    toggleAllMapShapes();
+    updateSystem();
+};
 
 async function toggleAllRoutes(stopCode, currentRoute) {
     allRoutesMode[stopCode] = document.getElementById(`allroutes-${stopCode}`).checked;
@@ -2457,31 +2705,67 @@ async function toggleAllRoutes(stopCode, currentRoute) {
 }
 
 let lastFrameTime = Date.now();
+function initLocation() {
+    if (!navigator.geolocation) return;
 
-    updateSystem();
+    navigator.geolocation.watchPosition(
+        (pos) => {
+            userCoords = [pos.coords.latitude, pos.coords.longitude];
+            if (!userMarker) {
+                userMarker = L.circleMarker(userCoords, {
+                    radius: 8,
+                    className: 'user-location-dot'
+                }).addTo(map);
+            } else {
+                userMarker.setLatLng(userCoords);
+            }
+        },
+        (err) => console.warn("Location access denied."),
+        { enableHighAccuracy: true }
+    );
+}
+
+function centerOnUser() {
+    if (userCoords) {
+        map.flyTo(userCoords, 16);
+        hapticFeedback('medium');
+    } else {
+        alert("Location not found yet. Please ensure GPS is enabled.");
+    }
+}
+
+// Call this once map is ready
+initLocation();
+
+    loadRouteMetadata();
     setInterval(updateSystem, 1000);
     checkAlerts();
 setInterval(checkAlerts, 120000);
 
-/* --- ADD TO BOTTOM OF index.html <script> --- */
-
-/* --- ADD TO <script> --- */
 function shouldRouteBeRunning(routeId) {
     const logic = btOperationalLogic[routeId];
-    if (!logic || !logic.ends || !logic.ends[inferredServiceLevel]) return false;
+    if (!logic || !logic.ends) return false;
 
     const now = new Date();
-    const [endH, endM] = logic.ends[inferredServiceLevel].split(':').map(Number);
-    let endTotal = endH * 60 + endM;
-    let nowTotal = now.getHours() * 60 + now.getMinutes();
+    const nowMins = now.getHours() * 60 + now.getMinutes() + (now.getHours() < 4 ? 1440 : 0);
+    
+    // Resolve dynamic end time safely
+    const routeEnds = logic.ends[inferredServiceLevel] || logic.ends["FULL SERVICE"] || logic.ends["DEFAULT"] || "00:00";
+    
+    let endStr = "";
+    if (typeof routeEnds === 'object') {
+        const day = now.getDay();
+        if ((day === 5 || day === 6) && routeEnds.FRI_SAT) endStr = routeEnds.FRI_SAT;
+        else endStr = routeEnds.MON_THU || routeEnds.DEFAULT || "01:00";
+    } else {
+        endStr = routeEnds;
+    }
 
-    if (endH < 4) endTotal += 1440; 
-    if (now.getHours() < 4) nowTotal += 1440;
+    const [eH, eM] = endStr.split(':').map(Number);
+    let endTotal = eH * 60 + eM + (eH < 4 ? 1440 : 0);
 
-    // Start checking for service roughly at 7:00 AM (420 mins)
-    return (nowTotal >= 420 && nowTotal < endTotal);
+    return (nowMins >= 400 && nowMins < endTotal); 
 }
-
 const tracker = {
     userId: localStorage.getItem('bt_user_id') || 'u-' + Math.random().toString(36).substr(2, 9),
     sessionId: 's-' + Math.random().toString(36).substr(2, 9),
