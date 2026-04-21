@@ -613,14 +613,53 @@
 
 /* --- TOGGLE SWITCH UI --- */
 .header-top { display: flex; justify-content: space-between; align-items: center; }
-.toggle-wrap { font-size: 9px; color: #94a3b8; font-weight: 800; gap: 6px; }
-.switch { width: 20px !important; height: 8px; margin-left: 5px; margin-right: 5px;}
-.switch input { opacity: 0; width: 0; height: 0; }
-.slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #cbd5e1; transition: .4s; border-radius: 20px; }
-.slider:before { position: absolute; content: ""; background-color: white; transition: .4s; border-radius: 50%; }
-.slider:before { height: 5px !important; width: 5px !important; left: 3px; bottom: 3px; }
-input:checked + .slider { background-color: var(--maroon) !important; }
-input:checked + .slider:before { transform: translateX(7px) !important; }
+/* Discrete Tiny Toggle */
+.toggle-wrap { 
+    font-size: 10px; 
+    color: #94a3b8; 
+    font-weight: 800; 
+    display: flex; 
+    align-items: center; 
+    gap: 6px; 
+    cursor: pointer;
+    text-transform: uppercase;
+    user-select: none;
+}
+
+.toggle-wrap input[type="checkbox"] {
+    appearance: none;
+    background-color: #f1f5f9;
+    margin: 0;
+    font: inherit;
+    color: var(--maroon);
+    width: 14px;
+    height: 14px;
+    border: 1px solid #cbd5e1;
+    border-radius: 3px;
+    display: grid;
+    place-content: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.toggle-wrap input[type="checkbox"]::before {
+    content: "";
+    width: 8px;
+    height: 8px;
+    transform: scale(0);
+    transition: 120ms transform ease-in-out;
+    box-shadow: inset 1em 1em var(--maroon);
+    clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+}
+
+.toggle-wrap input[type="checkbox"]:checked {
+    background-color: #fff1f2; /* Very subtle maroon tint */
+    border-color: var(--maroon);
+}
+
+.toggle-wrap input[type="checkbox"]:checked::before {
+    transform: scale(1);
+}
 
 /* Center Location Button */
 #locate-btn {
@@ -653,10 +692,7 @@ input:checked + .slider:before { transform: translateX(7px) !important; }
         <h1>Blacksburg Transit Map</h1>
         <label class="toggle-wrap">
             All
-            <div class="switch">
-                <input type="checkbox" id="all-routes-toggle" onchange="updateSystem()">
-                <span class="slider"></span>
-            </div>
+            <input type="checkbox" id="all-routes-toggle" onchange="toggleAllMapShapes()">
         </label>
     </div>
     <div class="status-txt" id="sys-status">Connecting...</div>
@@ -697,12 +733,14 @@ const btOperationalLogic = {
         bays: { "DAY": "Maroon Bay 6", "NIGHT": "Maroon Bay 7" },
         pairedWith: "NMG",
         multiBus: true,
-        starts: { "FULL SERVICE": "07:00", "REDUCED SERVICE": "07:00", "FULL WEEKENDS": "09:30" },
+        starts: { "FULL SERVICE": "19:00", "REDUCED SERVICE": "07:00", "FULL WEEKENDS": "09:30" },// Check again
         ends: { 
             "FULL SERVICE": { "MON_THU": "01:00", "FRI_SAT": "03:00" },
             "REDUCED SERVICE": "22:15"
         }
     },
+    "SMA": { name: "South Main Airport", bay: "Maroon Bay ?", transitionTo: "SMS", transitionTime: "12:15", starts: { "DEFAULT": "07:00" }, ends: { "FULL SERVICE": "12:15" } },
+    "SMS": { name: "South Main Southpark", bay: "Maroon Bay ?", transitionTo: "SMA", transitionTime: "12:45", starts: { "DEFAULT": "07:00" }, ends: { "FULL SERVICE": "12:45" } },
     "HWA": { name: "Hethwood A", bay: "Orange Bay 11", transitionTo: "HWC", transitionTime: "12:15", starts: { "DEFAULT": "07:00" }, ends: { "FULL SERVICE": "12:15" } },
     "HWB": { name: "Hethwood B", bay: "Orange Bay 10", transitionTo: "HWC", transitionTime: "12:45", starts: { "DEFAULT": "07:00" }, ends: { "FULL SERVICE": "12:45" } },
     "HWC": { name: "Hethwood Combined", bay: "Orange Bay 11", multiBus: true, starts: { "FULL SERVICE": "12:15", "REDUCED SERVICE": "07:00", "FULL WEEKENDS": "09:00" }, ends: { "FULL SERVICE": { "MON_THU": "01:00", "FRI_SAT": "03:00" }, "REDUCED SERVICE": "22:15" } },
@@ -717,8 +755,9 @@ const btOperationalLogic = {
     "HXP": { name: "Hokie Express", bay: "Maroon Bay 4", starts: { "DEFAULT": "07:00" }, ends: { "FULL SERVICE": "01:00" } },
     "CRC": { name: "Corporate Research Center", bay: "Orange Bay 15", starts: { "DEFAULT": "07:00" }, ends: { "FULL SERVICE": "19:15" } },
     "BMR": { name: "Beamer Way", bay: "Orange Bay 15", starts: { "DEFAULT": "07:15" }, ends: { "FULL SERVICE": "22:15" } },
+    "CRB": { name: "Carpenter Blvd", bay: "Orange Bay 12", starts: { "DEFAULT": "07:15" }, ends: { "FULL SERVICE": "15:15" } }, // Verify
     "GRN": { name: "Explorer Green", bay: "Christiansburg", starts: { "DEFAULT": "07:00" }, ends: { "DEFAULT": "18:30" } },
-    "BLU": { name: "Explorer Blue", bay: "Christiansburg", starts: { "DEFAULT": "07:00" }, ends: { "DEFAULT": "18:30" } }
+    "BLU": { name: "Explorer Blue", bay: "Christiansburg", starts: { "DEFAULT": "07:00" }, ends: { "DEFAULT": "18:30" } },    
 };
 
 /* --- ADD TO SCRIPT --- */
@@ -813,17 +852,24 @@ async function autoUpdateStopIcon(marker, stopCode, stopName, isTC) {
     try {
         const res = await fetch(`${API}/departures?code=${stopCode}`);
         const data = await res.json();
-        // Identify every unique route code servicing this location [cite: 108, 116, 120]
-        const allRoutes = [...new Set(data.map(d => d.route))];
         
-        if (allRoutes.length > 0) {
+        // Use a 1-minute grace period to hide badges for buses that just departed
+        const now = new Date(Date.now() + 60000); 
+
+        // Filter for unique routes that have future departures
+        const activeRoutes = [...new Set(data
+            .filter(d => new Date(d.time) > now)
+            .map(d => d.route)
+        )];
+        
+        const centerContent = isTC ? "🕒" : "";
+
+        if (activeRoutes.length > 0) {
             let badgesHtml = '';
-            // Display up to 5 colored route badges per stop [cite: 108, 120]
-            allRoutes.slice(0, 5).forEach(rid => {
+            activeRoutes.slice(0, 5).forEach(rid => {
                 badgesHtml += `<span class="stop-badge" style="background:${getRouteColor(rid)}"></span>`;
             });
 
-            const centerContent = isTC ? "🕒" : "";
             marker.setIcon(L.divIcon({
                 className: isTC ? 'stop-node timecheck-node' : 'stop-node',
                 iconSize: [20, 20],
@@ -832,8 +878,18 @@ async function autoUpdateStopIcon(marker, stopCode, stopName, isTC) {
                         <div class="stop-badges">${badgesHtml}</div>
                       </div>`
             }));
+        } else {
+            // Service Ended: Reset to a neutral, badge-less icon
+            marker.setIcon(L.divIcon({
+                className: isTC ? 'stop-node' : 'stop-node',
+                iconSize: [12, 12],
+                html: `<div class="stop-icon" title="${stopName} (No Service)">
+                        <div class="stop-center" style="background:#cbd5e1; border-color:#94a3b8;">${centerContent}</div>
+                        <div class="stop-badges"></div> 
+                      </div>`
+            }));
         }
-    } catch (e) { console.error("Auto-icon update failed", e); }
+    } catch (e) { console.warn("Badge sync failed for " + stopCode); }
 }
 
     const routeColors = {
@@ -1053,7 +1109,7 @@ Object.keys(btOperationalLogic).forEach(rId => {
         // 4. Determine Final Label
         let statusLabel = "SCHED"; 
         if (nowMins < startTotal) {
-            statusLabel = `STARTS @ ${startStr}`;
+            statusLabel = `@ ${startStr}`;
         } else if (nowMins >= endTotal) {
             statusLabel = "ENDED";
         }
@@ -1374,10 +1430,18 @@ function predictNextDeparture(cachedSchedule, stopLat, stopLon, currentRouteId, 
         return { type: "end_of_service", scheduledTime: now, dest: "N/A" };
     }
 
-    const firstScheduled = cachedSchedule[0];
-    const scheduledTime = firstScheduled.date;
-    console.log(`📅 API Anchor Time: ${scheduledTime.toLocaleTimeString()} (Dest: ${firstScheduled.dest})`);
+const firstScheduled = cachedSchedule && cachedSchedule.length > 0 ? cachedSchedule[0] : null;
 
+// If there's no schedule, exit early with a valid Date object to prevent crashes
+if (!firstScheduled) {
+    console.warn("⚠️ Schedule Empty: Service likely ended.");
+    return { type: "end_of_service", scheduledTime: new Date(), dest: "N/A" };
+}
+
+const scheduledTime = firstScheduled.date || new Date();
+
+// SAFE LOGGING: Added the ?. optional chaining
+console.log(`📅 API Anchor Time: ${scheduledTime?.toLocaleTimeString ? scheduledTime.toLocaleTimeString() : 'Invalid Date'}`);
     const activeBuses = [];
     const showAllRoutes = allRoutesMode[stopCode] || false;
     
@@ -1422,7 +1486,15 @@ function predictNextDeparture(cachedSchedule, stopLat, stopLon, currentRouteId, 
         window.stopClearMemory[memoryKey] = now.getTime(); // Record the exact moment the bus left
     }
 
-    let localSchedule = cachedSchedule;
+    // Create a safer local schedule that ignores any items with missing dates
+let localSchedule = cachedSchedule.filter(s => s && s.date); 
+
+if (window.stopClearMemory[memoryKey] && (now.getTime() - window.stopClearMemory[memoryKey] < 90000)) {
+    // Push 1 minute into the future, safely
+    localSchedule = localSchedule.filter(s => s.date.getTime() > now.getTime() + 60000); 
+} else if (recentlyDepartedBus) {
+    localSchedule = localSchedule.filter(s => s.date.getTime() > now.getTime() + 15000); 
+}
     
     // If a bus left this stop within the last 90 seconds, forcefully hide the current schedule entry.
     // This bridges the gap while we wait for the slow API to delete it, permanently killing the "DUE" flash!
@@ -1488,8 +1560,15 @@ let bestBus = null;
         // If no physical bus is tracking towards this stop, bypass ANY stale API schedules 
         // that are stuck in the past. Force the app to grab the next future departure.
         // This instantly obliterates the "DUE" flash when a bus drives away.
-        const futureSchedule = localSchedule.find(s => s.date.getTime() >= now.getTime() + 15000); 
-        const finalSched = futureSchedule || localSchedule[0];
+        // --- THE FIX: GHOST SCHEDULE SNAP (Line 1555) ---
+// We add "s.date &&" to verify the date exists before calling .getTime()
+const futureSchedule = localSchedule.find(s => s.date && s.date.getTime() >= now.getTime() + 15000); 
+const finalSched = futureSchedule || localSchedule[0];
+
+// Safety check: if localSchedule is empty or malformed, exit gracefully
+if (!finalSched || !finalSched.date) {
+    return { type: "end_of_service", scheduledTime: now, dest: "N/A" };
+}
         
         const timeSinceScheduled = (now - finalSched.date) / 60000;
         if (timeSinceScheduled > 2) {
@@ -1626,26 +1705,139 @@ if (!window.etaHistory) window.etaHistory = {};
     let liveEtaTimer = null;
 
 async function selectBus(id, route, patternName) {
+    map.closePopup(); // Instantly kill old popups
     selectedBusId = id;
     openRoute = route;
     currentSelectedRoute = route;
     if (liveEtaTimer) clearInterval(liveEtaTimer);
+    
+    if (window.innerWidth >= 768) {
+        document.getElementById('sidebar').classList.add('open');
+    }
 
     document.getElementById('sidebar').classList.add('open');
     hapticFeedback('medium');
-
+    document.getElementById('sys-status').innerText = `Loading ${route} Route...`;
+    
     shapeLayer.clearLayers();
     stopLayer.clearLayers();
-    
-    // Check if a physical marker exists
+
     if (busMarkers[id]) {
-        map.closePopup();
         busMarkers[id].setZIndexOffset(1000);
-        map.flyTo(busMarkers[id].getLatLng(), 16, { animate: true, duration: 0.5 });
-    } else {
-        // GHOST BUS: Fly to a default central view (e.g., Drillfield)
-        map.flyTo([37.2275, -80.4220], 14); 
+        map.flyTo(busMarkers[id].getLatLng(), 16, { animate: true });
     }
+
+    let lookupPattern = patternName;
+    if (id.includes("SCHED") && btOperationalLogic[route]) {
+        lookupPattern = btOperationalLogic[route].name; 
+    }
+
+    try {
+        let res = await fetch(`${API}/route_shape?pattern=${encodeURIComponent(lookupPattern)}`);
+        let json = await res.json();
+
+        // Fallback for CRC / others
+        if ((!json.shape || json.shape.length === 0) && (!json.stops || json.stops.length === 0)) {
+            res = await fetch(`${API}/route_shape?pattern=${encodeURIComponent(route)}`);
+            json = await res.json();
+        }
+
+        let combinedBounds = L.latLngBounds();
+
+        if (json.shape && json.shape.length > 0) {
+            const poly = L.polyline(json.shape, { color: getRouteColor(route), weight: 5, opacity: 0.8 }).addTo(shapeLayer);
+            combinedBounds.extend(poly.getBounds());
+        }
+
+        if (json.stops && json.stops.length > 0) {
+            json.stops.forEach(s => {
+                const isTC = (s.isTimePoint === "Y" || s.isTimecheck === true);
+                
+                // IMPORTANT: html starts with EMPTY stop-badges. autoUpdateStopIcon will fill them.
+                const icon = L.divIcon({ 
+                    className: isTC ? 'stop-node timecheck-node' : 'stop-node',
+                    iconSize: [20, 20],
+                    html: `<div class="stop-icon" title="${s.name}">
+                            <div class="stop-center">${isTC ? "🕒" : ""}</div>
+                            <div class="stop-badges"></div>
+                           </div>`
+                });
+
+                const m = L.marker([s.lat, s.lon], { icon: icon }).addTo(stopLayer);
+                combinedBounds.extend([s.lat, s.lon]);
+                autoUpdateStopIcon(m, s.code, s.name, isTC);
+
+                m.bindPopup(`
+                    <div style="font-family:'Inter',sans-serif; min-width:210px;">
+                        <div style="font-weight:800; color:#2c3e50; font-size:15px; margin-bottom:2px;">${s.name}</div>
+                        <div style="font-size:11px; color:#666; margin-bottom:10px;">Stop #${s.code} • ${route} Route</div>
+                        <div id="eta-box-${s.code}" style="background:#f8f9fa; border:1px solid #ddd; border-radius:8px; padding:12px; margin-bottom:10px; text-align:center;">
+                            <div id="eta-label-${s.code}" style="font-size:10px; text-transform:uppercase; color:#888; font-weight:bold;">STATUS</div>
+                            <div id="eta-timer-${s.code}" style="font-size:24px; font-weight:800; color:#2c3e50; margin:4px 0;">CHECKING...</div>
+                            <div id="eta-sub-${s.code}" style="font-size:11px; color:#64748b;">Syncing with BT Server...</div>
+                        </div>
+                        <button class="stop-popup-btn" onclick="checkDepartures('${s.code}', '${route}', this)">View Schedule</button>
+                    </div>
+                `);
+
+                m.on('popupopen', async () => {
+                    if (liveEtaTimer) clearInterval(liveEtaTimer);
+                    let cachedSchedule = null; // null = loading, [] = ended
+
+                    const updateDisplay = async () => {
+                        const timerEl = document.getElementById(`eta-timer-${s.code}`);
+                        const subEl = document.getElementById(`eta-sub-${s.code}`);
+                        const lblEl = document.getElementById(`eta-label-${s.code}`);
+                        const boxEl = document.getElementById(`eta-box-${s.code}`);
+                        if (!timerEl) return;
+
+                        // 1. Check if we've determined service has ended
+                        if (cachedSchedule !== null && cachedSchedule.length === 0) {
+                            boxEl.style.borderLeft = "6px solid #94a3b8";
+                            lblEl.innerHTML = `<span style="color:#d32f2f; font-weight:800;">OUT OF SERVICE</span>`;
+                            timerEl.innerHTML = `<span style="color:#64748b;">--:--</span>`;
+                            subEl.innerText = "No more runs scheduled today";
+                            if (liveEtaTimer) clearInterval(liveEtaTimer);
+                            return;
+                        }
+
+                        // 2. Initial Fetch
+                        if (cachedSchedule === null) {
+                            const res = await fetch(`${API}/departures?code=${s.code}`);
+                            const data = await res.json();
+                            const now = new Date();
+                            // Filter for future only
+                            cachedSchedule = data.filter(d => new Date(d.time) > now);
+                            if (cachedSchedule.length === 0) { updateDisplay(); return; }
+                        }
+
+                        // 3. Normal Prediction logic
+                        const p = predictNextDeparture(cachedSchedule, s.lat, s.lon, route, s.code, json.shape, json.stops);
+                        if (!p || p.type === "end_of_service") {
+                            cachedSchedule = []; updateDisplay(); return;
+                        }
+
+                        // Render Arrival/Departure (Use your existing detailed updateDisplay logic here)
+                        const liveSeconds = p.etaTime ? (p.etaTime.getTime() - Date.now()) / 1000 : 0;
+                        lblEl.innerText = "DEPARTING IN";
+                        timerEl.innerText = liveSeconds > 0 ? Math.floor(liveSeconds / 60) + "m " + Math.floor(liveSeconds % 60) + "s" : "DUE";
+                        subEl.innerText = p.dest;
+                    };
+
+                    updateDisplay();
+                    liveEtaTimer = setInterval(updateDisplay, 1000);
+                });
+            });
+            
+            document.getElementById('sys-status').innerText = `Tracking ${route} • ${json.stops.length} Stops`;
+        }
+
+        if (combinedBounds.isValid() && !busMarkers[id]) {
+            map.fitBounds(combinedBounds, { padding: [50, 50], maxZoom: 15, animate: true });
+        }
+    } catch(e) { console.error(e); }
+
+
 
     document.getElementById('sys-status').innerText = `Loading ${route} Route...`;
         try {
@@ -1668,7 +1860,7 @@ if (json.stops && json.stops.length > 0) {
                         className: isTC ? 'stop-node timecheck-node' : 'stop-node',
                         iconSize: [20, 20],
                         html: `<div class="stop-icon" title="${s.name}">
-                                <div class="stop-center">${isTC ? "🕒" : ""}</div>
+                                <div class="stop-center">${isTC ? "T" : ""}</div>
                                 <div class="stop-badges"><span class="stop-badge" style="background:${getRouteColor(route)}"></span></div>
                                </div>`
                     });
@@ -1721,7 +1913,7 @@ if (json.stops && json.stops.length > 0) {
                                     
                                     // Dynamically update the marker's HTML
                                     const isTC = (s.isTimePoint === "Y" || s.isTimecheck === true);
-                                    const centerContent = isTC ? "🕒" : "";
+                                    const centerContent = isTC ? "T" : "";
                                     m.getElement().innerHTML = `
                                         <div class="stop-icon" title="${s.name}">
                                             <div class="stop-center">${centerContent}</div>
@@ -1739,7 +1931,11 @@ if (json.stops && json.stops.length > 0) {
                                     .filter(d => showAllRoutes || d.route === route)
                                     .map((d, idx, arr) => {
                                         const today = new Date();
-                                        const timeParts = d.time.split("T")[1].split(":"); 
+                                        const timeParts = d.time.split("T")[1]?.split(":"); // Use ?. for safety
+if (!timeParts || timeParts.length < 2) {
+    console.error("Malformed time string from API:", d.time);
+    return null; // This item will be filtered out by the .filter(s => s) below
+}
                                         const schedDate = new Date();
                                         schedDate.setHours(parseInt(timeParts[0]), parseInt(timeParts[1]), 0, 0);
                                         
@@ -1773,6 +1969,19 @@ if (json.stops && json.stops.length > 0) {
     const lblEl = document.getElementById(`eta-label-${s.code}`);
     const boxEl = document.getElementById(`eta-box-${s.code}`);
     if (!timerEl) return;
+    
+    if (!cachedSchedule || cachedSchedule.length === 0) {
+        boxEl.style.background = "#f8f9fa"; 
+        boxEl.style.border = "1px solid #e2e8f0";
+        boxEl.style.borderLeft = "6px solid #94a3b8"; // Neutral gray
+        lblEl.innerHTML = `<span style="color:#d32f2f; font-weight:800;">SERVICE ENDED</span>`;
+        timerEl.innerHTML = `<span style="color:#64748b;">--:--</span>`;
+        subEl.innerText = "No more scheduled runs today";
+        
+        // Stop the interval because we know service is over
+        if (liveEtaTimer) clearInterval(liveEtaTimer);
+        return;
+    }
 
     // 1. Data Refresh (Keep this mostly the same)
 // 1. Data Refresh
@@ -1815,7 +2024,10 @@ if (json.stops && json.stops.length > 0) {
     }
     liveSeconds = Math.max(0, liveSeconds);
 
-    const schedStr = p.scheduledTime ? p.scheduledTime.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}) : "";
+    // Check if p exists, then if scheduledTime exists, then if it's a valid function
+const schedStr = (p && p.scheduledTime && typeof p.scheduledTime.toLocaleTimeString === 'function') 
+    ? p.scheduledTime.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}) 
+    : "--:--";
     const min = Math.floor(liveSeconds / 60);
     const sec = Math.floor(liveSeconds % 60).toString().padStart(2, '0');
     
@@ -2051,6 +2263,44 @@ setTimeout(() => {
 
     }
 
+    /**
+ * Fallback function to load standard stops for a route 
+ * when the specific pattern fetch fails.
+ */
+async function loadGenericStops(routeId) {
+    console.warn(`Fallback: Loading generic stops for ${routeId}`);
+    try {
+        // Try fetching stops using just the Route ID
+        const res = await fetch(`${API}/route_shape?pattern=${routeId}`);
+        const json = await res.json();
+        
+        // Even if there's no shape, we want to see if there are stops
+        if (json.stops && json.stops.length > 0) {
+            renderStopsOnly(json.stops, routeId);
+            document.getElementById('sys-status').innerText = `Viewing Scheduled Stops: ${routeId}`;
+        } else {
+            document.getElementById('sys-status').innerText = `No map data yet for ${routeId}`;
+        }
+    } catch (e) {
+        console.error("Generic load failed:", e);
+        document.getElementById('sys-status').innerText = "Route details unavailable";
+    }
+}
+
+// Helper to draw stops even if the purple line (shape) is missing
+function renderStopsOnly(stops, route) {
+    stopLayer.clearLayers();
+    stops.forEach(s => {
+        const isTC = (s.isTimePoint === "Y" || s.isTimecheck === true);
+        const icon = L.divIcon({ 
+            className: isTC ? 'stop-node timecheck-node' : 'stop-node',
+            iconSize: [14, 14],
+            html: isTC ? "🕒" : ""
+        });
+        L.marker([s.lat, s.lon], { icon: icon }).addTo(stopLayer)
+         .bindPopup(`<b>${s.name}</b><br>Stop #${s.code}`);
+    });
+}
     
     async function checkDepartures(code, route, btn) {
         btn.innerText = "Checking Schedules...";
@@ -2552,7 +2802,7 @@ routes[r].buses.forEach(b => {
                 const clickHandler = `selectBus('${b.id}', '${r}', '${b.pattern}')`; // Enable for all
                 const paxText = isGhost ? "---" : (b.pax > 150 ? "!" : b.pax + " pax");
                 const ghostClass = isGhost ? "style='opacity:0.6; font-style:italic;'" : "";
-                const ghostLabel = isGhost ? "<span class='tag ghost-tag' style='font-size:8px; margin-left:5px;'>SCHEDULED ONLY</span>" : "";
+                const ghostLabel = isGhost ? "<span class='tag ghost-tag' style='font-size:8px; margin-left:5px;'>NO DATA</span>" : "";
 
                 // Fix: Initialize extraStatus BEFORE using it in the template string
                 let extraStatus = "";
@@ -2646,27 +2896,59 @@ function handleDragEnd() {
 });
 
 let allShapesLayer = L.layerGroup().addTo(map);
+let cachedAllShapes = []; 
+let isMapLoading = false;
 
 async function toggleAllMapShapes() {
     const toggle = document.getElementById('all-routes-toggle');
-    localStorage.setItem('all_routes_enabled', toggle.checked); // Remember state
+    localStorage.setItem('all_routes_enabled', toggle.checked);
     
-    allShapesLayer.clearLayers();
-    if (!toggle.checked) return;
+    if (!toggle.checked) {
+        allShapesLayer.clearLayers();
+        return;
+    }
 
-    Object.keys(btOperationalLogic).forEach(async (rId) => {
-        const patterns = [rId, `${rId} - Loop`, `${rId}-Loop`].slice(0, 2);
-        for (let pName of patterns) {
+    // Instant display if already loaded in this session
+    if (cachedAllShapes.length > 0) {
+        cachedAllShapes.forEach(line => line.addTo(allShapesLayer));
+        return;
+    }
+
+    if (isMapLoading) return;
+    isMapLoading = true;
+    document.getElementById('sys-status').innerText = "Loading Coverage Map...";
+
+    try {
+        const res = await fetch(`${API}/active_patterns`);
+        const patterns = await res.json();
+
+        // Promise.all lets the browser fetch all coordinates in parallel
+        await Promise.all(patterns.map(async (item) => {
             try {
-                const res = await fetch(`${API}/route_shape?pattern=${encodeURIComponent(pName)}`);
-                const json = await res.json();
+                const sRes = await fetch(`${API}/route_shape?pattern=${encodeURIComponent(item.pName)}`);
+                const json = await sRes.json();
+                
                 if (json.shape && json.shape.length > 0) {
-                    L.polyline(json.shape, { color: getRouteColor(rId), weight: 3, opacity: 0.3 }).addTo(allShapesLayer);
-                    break;
+                    const poly = L.polyline(json.shape, {
+                        color: getRouteColor(item.rId),
+                        weight: 3,
+                        opacity: 0.3, // Faint coverage look
+                        interactive: false,
+                        pane: 'overlayPane'
+                    });
+
+                    cachedAllShapes.push(poly); 
+                    poly.addTo(allShapesLayer); 
                 }
-            } catch(e) {}
-        }
-    });
+            } catch (e) {}
+        }));
+        
+        document.getElementById('sys-status').innerText = "Coverage Map Loaded";
+    } catch (err) {
+        console.error("Map sync failed", err);
+    } finally {
+        isMapLoading = false;
+    }
 }
 
 // Add to your initialization (bottom of script)
