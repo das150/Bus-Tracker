@@ -5,10 +5,18 @@ import xml.etree.ElementTree as ET
 import urllib3
 from functools import lru_cache
 import time
+from concurrent.futures import ThreadPoolExecutor
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import sqlite3
 from datetime import datetime, timedelta
+
+# Server-side Cache Store
+PATTERN_CACHE = {
+    "data": None,
+    "last_updated": 0
+}
+CACHE_TTL = 3600 # Cache results for 1 hour (3600 seconds)
 
 def init_tracker_db():
     conn = sqlite3.connect('usage.db')
@@ -234,6 +242,58 @@ def get_fleet_summary():
         return jsonify(data['data'])
     return jsonify([])
 
+@app.route('/active_patterns')
+def get_active_patterns():
+    global PATTERN_CACHE
+    
+    # 1. Check if we have valid cached data
+    now = time.time()
+    if PATTERN_CACHE["data"] and (now - PATTERN_CACHE["last_updated"] < CACHE_TTL):
+        print("💾 Serving Patterns from Server Cache")
+        return jsonify(PATTERN_CACHE["data"])
+
+    # 2. If no cache, fetch fresh data
+    route_ids = ["CAS", "BMR", "PRG", "SME", "HDG", "SMA", "HWA", "HWC", "HWB", 
+                 "BLU", "PHD", "HXP", "PHB", "UCB", "CRB", "CRC", "TCP", "NMG", 
+                 "TCR", "SMS", "TTT", "GRN"]
+    
+    today = datetime.now().strftime("%m/%d/%Y")
+    all_patterns = []
+
+    def fetch_route_patterns(r_id):
+        patterns = []
+        try:
+            url = f"{XML_BASE}/GetPatternNamesForDate"
+            params = {'routeShortName': r_id, 'serviceDate': today}
+            resp = requests.get(url, params=params, timeout=3)
+            if resp.status_code == 200:
+                root = ET.fromstring(resp.content)
+                for node in root.findall('.//PatternNames'):
+                    p_name = node.findtext('PatternName')
+                    
+                    # --- THE FILTER: Exclude FR (First Runs) and Duplicates ---
+                    if not p_name: continue
+                    p_clean = p_name.upper()
+                    if " FR" in p_clean or p_clean.endswith(" FR") or p_clean.endswith("_"):
+                        continue
+                    
+                    patterns.append({"rId": r_id, "pName": p_name})
+        except: pass
+        return patterns
+
+    print(f"⚡ Parallel Fetching Fresh Patterns for {today}...")
+    with ThreadPoolExecutor(max_workers=20) as executor:
+        results = executor.map(fetch_route_patterns, route_ids)
+        for batch in results:
+            all_patterns.extend(batch)
+
+    # 3. Update Cache
+    PATTERN_CACHE["data"] = all_patterns
+    PATTERN_CACHE["last_updated"] = now
+    
+    print(f"✅ Cache Updated: Found {len(all_patterns)} clean patterns.")
+    return jsonify(all_patterns)
+    
 @app.route('/routes')
 def get_routes_list():
     # 1. Check Cache
