@@ -86,7 +86,7 @@ def fetch_xml_departures(stop_code):
         url = f"{XML_BASE}/GetNextDeparturesForStop"
         params = {'routeShortName': '', 'noOfTrips': '20', 'stopCode': stop_code}
         
-        resp = requests.get(url, params=params, timeout=5)
+        resp = session.get(url, params=params, timeout=5)
         if resp.status_code != 200: return []
             
         root = ET.fromstring(resp.content)
@@ -126,7 +126,7 @@ def fetch_xml_routes():
             'serviceDate': datetime.now().strftime("%Y-%m-%d")
         }
         
-        resp = requests.get(url, params=params, timeout=10)
+        resp = session.get(url, params=params, timeout=10)
         if resp.status_code != 200: return {}
 
         root = ET.fromstring(resp.content)
@@ -265,7 +265,7 @@ def get_active_patterns():
         try:
             url = f"{XML_BASE}/GetPatternNamesForDate"
             params = {'routeShortName': r_id, 'serviceDate': today}
-            resp = requests.get(url, params=params, timeout=3)
+            resp = session.get(url, params=params, timeout=3)
             if resp.status_code == 200:
                 root = ET.fromstring(resp.content)
                 for node in root.findall('.//PatternNames'):
