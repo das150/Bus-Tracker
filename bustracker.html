@@ -127,7 +127,7 @@
 }
 
 /* Header Adjustments */
-.header { padding: 12px 18px; border-bottom: 1px solid #f1f5f9; background: white; }
+.header { padding: 12px 18px; border-bottom: 1px solid #f1f5f9; }
 
 /* Desktop View Override */
 @media (min-width: 768px) {
@@ -148,6 +148,7 @@
 
 /* Adjust Service Badge for mobile */
 #service-level-badge {
+    background: white;
     top: 10px;
     right: 10px;
     font-size: 10px;
@@ -213,13 +214,13 @@
             color: white;
         }
 
-        .header { padding: 15px 20px; border-bottom: 1px solid #eee; background: white; }
+        .header { padding: 15px 20px; border-bottom: 1px solid #eee;}
         h1 { margin: 0; font-size: 1.2rem; color: var(--maroon); }
         .status-txt { font-size: 0.8rem; color: #666; margin-top: 4px; }
-        #list-container { overflow-y: auto; padding: 10px; background: #f8f9fa; flex-grow: 1; }
+        #list-container { overflow-y: auto; padding: 10px; flex-grow: 1; }
 
         /* BUS LIST */
-        .route-group { margin-bottom: 8px; background: white; border-radius: 8px; border: 1px solid #ddd; overflow: hidden; }
+        .route-group { margin-bottom: 8px; border-radius: 8px; border: 1px solid #ddd; overflow: hidden; }
         .route-header { padding: 12px; cursor: pointer; display: flex; align-items: center; transition: background 0.2s; border-left: 4px solid transparent;}
         .route-header:hover { background: #f0f0f0; }
         .r-badge { 
@@ -556,7 +557,7 @@
 }
 
 .pop-h { background: var(--maroon); color: white; padding: 14px 18px; font-weight: 800; border-radius: 16px 16px 0 0; font-size: 16px; }
-.pop-b { padding: 18px; background: white; }
+.pop-b { padding: 18px; }
 
 .bus-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 16px; text-align: center; }
 .bus-stat { display: flex; flex-direction: column; align-items: center; }
@@ -576,7 +577,6 @@
     top: 15px;
     right: 15px;
     z-index: 1000;
-    background: white;
     padding: 8px 12px;
     border-radius: 8px;
     font-weight: 800;
@@ -604,13 +604,62 @@
     color: white !important;
 }
 /* --- USER LOCATION DOT --- */
-.user-location-dot {
-    background: #2563eb;
-    border: 2px solid white;
-    border-radius: 50%;
-    box-shadow: 0 0 10px rgba(37, 99, 235, 0.5);
+/* --- STANDARD LOCATION UI --- */
+
+/* --- PERFECTLY CENTERED LOCATION MARKER --- */
+.user-location-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px; /* Larger container to catch the pulse overflow */
+    height: 20px;
 }
 
+.user-location-dot {
+    width: 12px;
+    height: 12px;
+    background-color: #007AFF; /* Standard Blue */
+    border: 2px solid white;
+    border-radius: 50%;
+    box-shadow: 0 0 5px rgba(0,0,0,0.3);
+    z-index: 2; /* Keeps the dot on top of the pulse */
+}
+
+.user-location-pulse {
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    background-color: rgba(0, 122, 255, 0.4);
+    border-radius: 50%;
+    z-index: 1;
+    animation: location-pulse 2s infinite ease-out;
+}
+
+@keyframes location-pulse {
+    0% { transform: scale(1); opacity: 1; }
+    100% { transform: scale(4); opacity: 0; }
+}
+
+/* Locate Button Bottom-Right Style */
+.leaflet-control-locate {
+    width: 33px;
+    height: 33px;
+    background: #fff;
+    border-radius: 4px;
+    border: 1px solid #ccc;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 1px 5px rgba(0,0,0,0.4);
+    margin-bottom: 3px !important; /* Extra padding from bottom of screen */
+}
+
+body.dark-mode .leaflet-control-locate {
+    background: #27272a;
+    border-color: #3f3f46;
+    color: #E5751F;
+}
 /* --- TOGGLE SWITCH UI --- */
 .header-top { display: flex; justify-content: space-between; align-items: center; }
 /* Discrete Tiny Toggle */
@@ -669,6 +718,195 @@
     font-size: 18px; color: #444; transition: background 0.2s;
 }
 #locate-btn:hover { background: #f4f4f4; }
+
+/* --- CONSOLIDATED DARK MODE: NO WHITE SURVIVES --- */
+body.dark-mode {
+    background-color: #1e1e1e !important;
+    color: #f4f4f5 !important;
+}
+
+/* 1. Sidebar & Header Fixes */
+body.dark-mode #sidebar {
+    background: #18181b !important;
+    border-top: 1px solid #3d3d3d !important;
+}
+
+body.dark-mode #service-level-badge {
+    background: #27272a !important;
+}
+
+body.dark-mode .header {
+    background: #18181b !important;
+}
+
+body.dark-mode .header h1 {
+    color: #E5751F !important; /* Hokie Orange */
+}
+
+body.dark-mode .bus-ptrn { 
+    color: #cbd5e1 !important; /* Brighter gray for pattern names */
+}
+
+/* 2. Darker "SCHED" Tabs */
+body.dark-mode .r-count { 
+    background: #3f3f46 !important; 
+    color: #ffffff !important; 
+}
+
+/* 1. Sidebar Headers & Full Names */
+body.dark-mode #sidebar { background: #18181b !important; }
+body.dark-mode .header h1 { color: #E5751F !important; }
+
+/* 2. Route Cards & Bus Items (Killing the White) */
+body.dark-mode .route-group, 
+body.dark-mode .route-header,
+body.dark-mode .bus-item:not(.selected) {
+    background-color: #27272a !important; 
+    border-color: #3d3d3d !important;
+    color: #ffffff !important;
+}
+
+/* Hover & Selected states */
+body.dark-mode .route-header:hover,
+body.dark-mode .bus-item:hover {
+    background-color: #3f3f46 !important;
+}
+
+body.dark-mode .bus-item.selected {
+    background-color: #450a0a !important; /* Deep Maroon */
+    border-left: 4px solid #E5751F !important;
+}
+
+/* 3. Popup Body (Killing the White) */
+body.dark-mode .leaflet-popup-content-wrapper,
+body.dark-mode .leaflet-popup-tip,
+body.dark-mode .pop-b,
+body.dark-mode .pop-b div {
+    background-color: #27272a !important;
+    color: #f4f4f5 !important;
+}
+
+body.dark-mode .stat-box {
+    background: #18181b !important;
+    border: 1px solid #3d3d3d !important;
+}
+
+body.dark-mode .stat-value {
+    color: #afafaf !important;
+}
+
+body.dark-mode .bus-item {
+    color: #e8e8e8 !important;
+}
+
+/* 4. Text Contrast Fixes */
+body.dark-mode .bus-ptrn, 
+body.dark-mode .status-txt,
+body.dark-mode .stat-label,
+body.dark-mode .r-count {
+    color: #a1a1aa !important;
+}
+
+/* 5. Attribution Toggle Link */
+.theme-link {
+    cursor: pointer;
+    color: #E5751F !important;
+    font-weight: 800;
+    text-decoration: underline;
+    margin-left: 5px;
+}
+
+/* 4. Popups & Cards (No White) */
+body.dark-mode .route-group,
+body.dark-mode .bus-item:not(.selected),
+body.dark-mode .leaflet-popup-content-wrapper,
+body.dark-mode .pop-b {
+    background-color: #27272a !important;
+    color: #ffffff !important;
+    border-color: #3f3f46 !important;
+}
+
+body.dark-mode .r-title { 
+    color: #ffffff !important; 
+    font-weight: 800 !important;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+}
+
+body.dark-mode .stopName { 
+    color: #ffffff !important; 
+}
+
+/* 3. Blue Text Fix (Hahn Hall / Links) */
+body.dark-mode a, 
+body.dark-mode .stop-link,
+body.dark-mode .blue-text { 
+    color: white !important; /* Bright Sky Blue for readability */
+    font-weight: 600;
+}
+
+/* 5. Fixed Toggle Button (Outside Attribution) */
+#theme-button {
+    position: fixed;
+    bottom: 25px;
+    right: 20px;
+    z-index: 9999;
+    padding: 8px 15px;
+    border-radius: 20px;
+    border: 1px solid #3f3f46;
+    background: #18181b;
+    color: #E5751F;
+    font-weight: 800;
+    font-size: 11px;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+body.dark-mode #theme-button {
+    background: #27272a;
+    border-color: #E5751F;
+}
+.leaflet-control-zoom {
+    color: black !important;
+}
+body.dark-mode .leaflet-bar a {
+    /* Changes the box to a "Lighter Dark" Zinc-Gray */
+    background-color: #27272a !important; 
+    
+    /* Changes the + and - symbols to Hokie Orange */
+    color: #E5751F !important; 
+    
+    /* Darkens the divider line between the + and - buttons */
+    border-bottom: 1px solid #3f3f46 !important;
+}
+
+body.dark-mode #locate-btn {
+    /* Changes the box to a "Lighter Dark" Zinc-Gray */
+    background-color: #27272a !important; 
+    
+    /* Changes the + and - symbols to Hokie Orange */
+    color: #E5751F !important; 
+    
+    /* Darkens the divider line between the + and - buttons */
+    border-bottom: 1px solid #3f3f46 !important;
+}
+.artic-bus-container {
+    overflow: visible !important;
+}
+
+.artic-svg {
+    width: 60px;
+    height: 24px;
+    filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+}
+
+.trailer {
+    transition: transform 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+    /* This ensures the back half pivots around the hinge point */
+    transform-origin: 50px 20px; 
+}
     </style>
 </head>
 <body>
@@ -701,7 +939,6 @@
     <div id="list-container"></div>
 </div>
 
-<button id="locate-btn" onclick="centerOnUser()" title="Center on Me">📍</button>
 <div id="map"></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -837,8 +1074,22 @@ let currentSelectedRoute = null; // Track which route's shape is displayed
 let allRoutesMode = {}; // Track per-stop whether to show all routes
 
     const API = "";
-    const map = L.map('map', { zoomControl: false }).setView([37.2296, -80.4139], 14);
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { attribution: 'Unofficial Resource' }).addTo(map);
+    // --- Map Layer Config ---
+const lightTiles = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { 
+    attribution: 'Unofficial Resource' 
+});
+
+const darkTiles = L.tileLayer('https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png', { 
+    attribution: 'Unofficial Resource' 
+});
+
+// Default to light (or dark based on initial check)
+const map = L.map('map', { 
+    zoomControl: false, 
+    attributionControl: true 
+}).setView([37.2296, -80.4139], 14);
+lightTiles.addTo(map); // We will swap this in the next block
+
     map.attributionControl.setPrefix(false);
     L.control.zoom({ position: 'bottomright' }).addTo(map);
     
@@ -847,6 +1098,59 @@ let allRoutesMode = {}; // Track per-stop whether to show all routes
             clearSelection();
         }
     });
+function updateAttribution(label) {
+    // We set the prefix directly so it can't be hidden by other layers
+    map.attributionControl.setPrefix(`<a class="theme-link" style="color:black !important;" onclick="manualThemeToggle()">${label}</a>`);
+}
+
+function applyTheme(isNight) {
+    if (isNight) {
+        document.body.classList.add('dark-mode');
+        map.removeLayer(lightTiles);
+        darkTiles.addTo(map);
+        updateAttribution("Light Mode");
+    } else {
+        document.body.classList.remove('dark-mode');
+        map.removeLayer(darkTiles);
+        lightTiles.addTo(map);
+        updateAttribution("Dark Mode");
+    }
+}
+
+function manualThemeToggle() {
+    isManualTheme = true;
+    const isCurrentlyDark = document.body.classList.contains('dark-mode');
+    applyTheme(!isCurrentlyDark);
+}
+
+ async function initDynamicTheme() {
+    try {
+        const lat = 37.2296, lng = -80.4139;
+        const response = await fetch(`https://api.sunrise-sunset.org/json?lat=${lat}&lng=${lng}&formatted=0`);
+        const data = await response.json();
+        
+        const sunrise = new Date(data.results.sunrise);
+        const sunset = new Date(data.results.sunset);
+
+        function checkSun() {
+            if (isManualTheme) return;
+            const now = new Date();
+            applyTheme(now < sunrise || now > sunset);
+        }
+
+        // Initialize immediately
+        checkSun();
+        // Check every minute thereafter
+        setInterval(checkSun, 60000);
+        
+    } catch (e) {
+        console.error("Solar engine failed, defaulting to clock check.");
+        const hour = new Date().getHours();
+        applyTheme(hour >= 20 || hour < 6);
+    }
+}
+
+initDynamicTheme();
 
 async function autoUpdateStopIcon(marker, stopCode, stopName, isTC) {
     try {
@@ -972,6 +1276,7 @@ async function updateSystem() {
 
         const now = new Date();
 
+
         // --- ✅ FIX: GHOST BUS FILTER ---
         // Remove any bus that hasn't updated in > 10 minutes
 // --- ✅ FIX: CORRECT GHOST FILTER ---
@@ -1020,11 +1325,34 @@ const adherence = state.deviation || 0;
             const isTimePoint = (state.isTimePoint === "Y");
             const isLR = isLastRun(pattern);
 
+            // Global store for articulation history
+const articHistory = {}; 
+
+// Inside your bus processing loop:
+const busId = bus.id;
+const currentHeading = bus.heading;
+
+// If we don't have a history for this bus, initialize it
+if (!articHistory[busId]) {
+    articHistory[busId] = currentHeading;
+}
+
+// Calculate the "Bend Angle" (capped at ~35 degrees for realism)
+let bend = currentHeading - articHistory[busId];
+if (bend > 180) bend -= 360;
+if (bend < -180) bend += 360;
+
+// Update history for the next frame
+// We multiply by 0.9 to slowly "straighten" the bus as it drives
+articHistory[busId] = (articHistory[busId] * 0.1) + (currentHeading * 0.9);
+
+const bendAmount = Math.max(-35, Math.min(35, bend));
+
             if (!newRouteData[route]) newRouteData[route] = { count: 0, buses: [] };
             newRouteData[route].count++;
             newRouteData[route].buses.push({ id, pattern, pax, isStopped, speed: speedMph, percentCap, isTimePoint, isLR });
 const versionTs = bus.states && bus.states[0] ? bus.states[0].version : Date.now();
-            updateMarker(id, route, lat, lon, heading, pattern, pax, speedMph, adherence, isStopped, percentCap, isTimePoint, isLR, versionTs);
+            updateMarker(id, route, lat, lon, heading, pattern, pax, speedMph, adherence, isStopped, percentCap, isTimePoint, isLR, versionTs, bus.isExtraTrip, bus.amenities);
 
             const m = busMarkers[bus.id];
             if (m && m.getElement()) {
@@ -1132,6 +1460,29 @@ document.getElementById('all-routes-toggle').onchange = () => {
 };
 
 // --- FIX: Robust Route Loading in index.html ---
+
+function getArticIcon(routeColor, bendAngle, isArtic) {
+    if (!isArtic) return getStandardIcon(routeColor); // Fallback for 40ft buses
+
+    return L.divIcon({
+        className: 'artic-bus-container',
+        html: `
+            <svg viewBox="0 0 100 40" class="artic-svg">
+                <g class="trailer" style="transform: rotate(${bendAngle}deg); transform-origin: 50px 20px;">
+                    <rect x="5" y="10" width="45" height="20" rx="3" fill="${routeColor}" stroke="white" stroke-width="2" />
+                    <rect x="10" y="12" width="10" height="16" fill="rgba(255,255,255,0.3)" /> </g>
+                
+                <rect x="46" y="11" width="8" height="18" fill="#333" />
+
+                <g class="cabin">
+                    <rect x="50" y="10" width="45" height="20" rx="3" fill="${routeColor}" stroke="white" stroke-width="2" />
+                    <rect x="80" y="12" width="12" height="16" fill="rgba(255,255,255,0.6)" /> </g>
+            </svg>
+        `,
+        iconSize: [60, 24],
+        iconAnchor: [30, 12]
+    });
+}
 
 let routeNames = {}; 
 
@@ -1310,10 +1661,10 @@ async function checkAlerts() {
         console.error("Alert check failed", e);
     }
 }
-
+const articHistory = {};
     // --- VISUALS ---
     /* --- REPLACE ENTIRE updateMarker FUNCTION --- */
-function updateMarker(id, route, lat, lon, heading, pattern, pax, speed, adherence, isStopped, percentCap, isTimePoint, isLR, versionTs) {
+function updateMarker(id, route, lat, lon, heading, pattern, pax, speed, adherence, isStopped, percentCap, isTimePoint, isLR, versionTs, isExtraTrip, amenities) {
     if (!busTrails[id]) busTrails[id] = L.polyline([], { color: getRouteColor(route), weight: 4, opacity: 0.25 }).addTo(map);
     const trail = busTrails[id];
     trail.addLatLng([lat, lon]);
@@ -1327,10 +1678,21 @@ function updateMarker(id, route, lat, lon, heading, pattern, pax, speed, adheren
     const generateIconHtml = (currentRoute) => {
         const color = getRouteColor(currentRoute);
         const electricHtml = isElectric(id) ? `<div class="electric-badge">⚡</div>` : '';
-        let topBadgeHtml = '';
-        if (isTimePoint && isStopped) topBadgeHtml = `<div class="top-badge bdg-hold">HOLD</div>`;
-        else if (percentCap >= 90) topBadgeHtml = `<div class="top-badge bdg-full">FULL</div>`;
-        else if (percentCap >= 75) topBadgeHtml = `<div class="top-badge bdg-busy">BUSY</div>`;
+// --- Step 3: HTML HOLD FIX ---
+let topBadgeHtml = '';
+// Only show HOLD if the API says it's a timepoint AND speed is less than 3 mph
+const speedMph = Math.round(speed * 2.23694);
+const isMoving = speedMph > 2;
+
+if (isTimePoint && isStopped && !isMoving) {
+    topBadgeHtml = `<div class="top-badge bdg-hold">HOLD</div>`;
+} else if (isExtraTrip) {
+    extraStatus += `<span class="top-badge bdg-hold">TRIPPER</span>`;
+} else if (percentCap >= 90) {
+    topBadgeHtml = `<div class="top-badge bdg-full">FULL</div>`;
+} else if (percentCap >= 75) {
+    topBadgeHtml = `<div class="top-badge bdg-busy">BUSY</div>`;
+}
 
         const lrClass = isLR ? 'lr-border' : '';
         let bodyHtml = isAccordion(id) ?
@@ -1368,9 +1730,7 @@ const updateTs = versionTs || Date.now();
         }
         
         // 3. MOVE THE MARKER
-        if (isNewData) {
-            m.setLatLng([jLat, jLon]);
-        }
+        m.setLatLng([jLat, jLon]);
         const wrapper = m.getElement()?.querySelector('.bus-rotate-wrap');
         
         if (wrapper) wrapper.style.transform = `rotate(${heading}deg)`;
@@ -1386,19 +1746,19 @@ if (iconElement) {
 if (id === selectedBusId) m.setZIndexOffset(1000); else m.setZIndexOffset(0)
 
         // Update the popup content immediately if it's open to refresh the live counter [cite: 498]
-        const popupHtml = getPopup(id, route, pattern, pax, speed, adherence, isStopped, percentCap, isTimePoint, popupTimestamp, lat, lon);
+        const popupHtml = getPopup(id, route, pattern, pax, speed, adherence, isStopped, percentCap, isTimePoint, popupTimestamp, lat, lon, isExtraTrip, amenities);
         m.setPopupContent(popupHtml);
     } else {
         const m = L.marker([jLat, jLon], {
             icon: L.divIcon({ className: 'bus-icon-container', html: generateIconHtml(route), iconSize: [60, 60], iconAnchor: [30, 30] }),
-            riseOnHover: true
+            riseOnHover: false
         }).addTo(map);
 
         m.on('mouseover', function() { this.setZIndexOffset(10000); });
         m.on('mouseout', function() { if (this.busId !== selectedBusId) this.setZIndexOffset(0); });
         
         // Bind the popup with specific options for stability and isolation [cite: 361, 486, 514]
-        m.bindPopup(getPopup(id, route, pattern, pax, speed, adherence, isStopped, percentCap, isTimePoint, popupTimestamp, lat, lon), { 
+        m.bindPopup(getPopup(id, route, pattern, pax, speed, adherence, isStopped, percentCap, isTimePoint, popupTimestamp, lat, lon, isExtraTrip, amenities), { 
             className: 'bus-popup', 
             autoPan: false,
             offset: [0, -10] // Positions popup slightly higher above the bus [cite: 520]
@@ -1769,9 +2129,9 @@ async function selectBus(id, route, patternName) {
 
                 m.bindPopup(`
                     <div style="font-family:'Inter',sans-serif; min-width:210px;">
-                        <div style="font-weight:800; color:#2c3e50; font-size:15px; margin-bottom:2px;">${s.name}</div>
+                        <div class="stopTitle" style="font-weight:800; color:#2c3e50; font-size:15px; margin-bottom:2px;">${s.name}</div>
                         <div style="font-size:11px; color:#666; margin-bottom:10px;">Stop #${s.code} • ${route} Route</div>
-                        <div id="eta-box-${s.code}" style="background:#f8f9fa; border:1px solid #ddd; border-radius:8px; padding:12px; margin-bottom:10px; text-align:center;">
+                        <div id="eta-box-${s.code}" style="border:1px solid #ddd; border-radius:8px; padding:12px; margin-bottom:10px; text-align:center;">
                             <div id="eta-label-${s.code}" style="font-size:10px; text-transform:uppercase; color:#888; font-weight:bold;">STATUS</div>
                             <div id="eta-timer-${s.code}" style="font-size:24px; font-weight:800; color:#2c3e50; margin:4px 0;">CHECKING...</div>
                             <div id="eta-sub-${s.code}" style="font-size:11px; color:#64748b;">Syncing with BT Server...</div>
@@ -1860,7 +2220,7 @@ if (json.stops && json.stops.length > 0) {
                         className: isTC ? 'stop-node timecheck-node' : 'stop-node',
                         iconSize: [20, 20],
                         html: `<div class="stop-icon" title="${s.name}">
-                                <div class="stop-center">${isTC ? "T" : ""}</div>
+                                <div class="stop-center">${isTC ? "🕒" : ""}</div>
                                 <div class="stop-badges"><span class="stop-badge" style="background:${getRouteColor(route)}"></span></div>
                                </div>`
                     });
@@ -1874,10 +2234,10 @@ if (json.stops && json.stops.length > 0) {
 
                     m.bindPopup(`
     <div style="font-family:'Inter',sans-serif; min-width:210px;">
-        <div style="font-weight:800; color:#2c3e50; font-size:15px; margin-bottom:2px;">${s.name}</div>
+        <div class="stopName" style="font-weight:800; color:#2c3e50; font-size:15px; margin-bottom:2px;">${s.name}</div>
         <div style="font-size:11px; color:#666; margin-bottom:10px;">Stop #${s.code} • ${route} Route</div>
        
-        <div id="eta-box-${s.code}" style="background:#f8f9fa; border:1px solid #ddd; border-radius:8px; padding:12px; margin-bottom:10px; text-align:center; transition: all 0.3s;">
+        <div id="eta-box-${s.code}" style="border:1px solid #ddd; border-radius:8px; padding:12px; margin-bottom:10px; text-align:center; transition: all 0.3s;">
             <div id="eta-label-${s.code}" style="font-size:10px; text-transform:uppercase; color:#888; letter-spacing:1px; font-weight:bold;">DEPARTING IN</div>
             <div id="eta-timer-${s.code}" style="font-size:26px; font-weight:800; color:#2c3e50; margin:4px 0; font-variant-numeric: tabular-nums;">--:--</div>
             <div id="eta-sub-${s.code}" style="font-size:11px; color:#630031; font-weight:600;">Connecting...</div>
@@ -1913,7 +2273,7 @@ if (json.stops && json.stops.length > 0) {
                                     
                                     // Dynamically update the marker's HTML
                                     const isTC = (s.isTimePoint === "Y" || s.isTimecheck === true);
-                                    const centerContent = isTC ? "T" : "";
+                                    const centerContent = isTC ? "🕒" : "";
                                     m.getElement().innerHTML = `
                                         <div class="stop-icon" title="${s.name}">
                                             <div class="stop-center">${centerContent}</div>
@@ -2508,7 +2868,7 @@ if (roadDist < 300) {
     
     return Math.max(0, Math.round(seconds));
 }
-function getPopup(busId, currentRoute, currentPattern, pax, rawSpeed, adherence, isStopped, percentCap, isTimePoint, timestamp, lat, lon) {
+function getPopup(busId, currentRoute, currentPattern, pax, rawSpeed, adherence, isStopped, percentCap, isTimePoint, timestamp, lat, lon, isExtraTrip, amenities) {
     const routeColor = getRouteColor(currentRoute);
     const logic = btOperationalLogic[currentRoute];
     const speed = parseFloat(rawSpeed) || 0;
@@ -2614,13 +2974,24 @@ if (serviceInfo.isEnding) {
         } 
     }
 
+    let amenityHtml = "";
+    if (amenities && amenities.length > 0) {
+        amenities.forEach(a => {
+        if (a.iconName === 'bicycle') amenityHtml += "Bicycle Rack ";
+        if (a.iconName === 'snowflake') amenityHtml += "Air Conditioning ";
+        if (a.iconName === 'wheelchair') amenityHtml += "Low-Floor Bus w Ramp ";
+        if (a.iconName === 'baby-carriage') amenityHtml += "Stroller / Priority Seating ";
+    });
+}
+// Add ${amenityHtml} to your popup template
+
 const metadata = routeMetadata[currentRoute];
 const scheduleUrl = (metadata && metadata.pdf) ? metadata.pdf : (currentRoute === "BMR" ? "http://www.bt4uclassic.org/schedules/bmr.pdf" : "#");
 
     return `
         <div class="pop-h" style="background:${routeColor}">${currentRoute} • Bus ${busId}</div>
         <div class="pop-b">
-            ${alertBanner}
+            ${alertBanner} ${amenityHtml}
             <div class="bus-grid">
                 <div class="bus-stat">
                     <svg width="24" height="24" viewBox="2.5 2.5 19 19" fill="none" stroke="${paceColor}" stroke-width="2.5"><path d="M4.5 18a8.5 8.5 0 1 1 15 0"/><path d="m12 14 4-4"/><circle cx="12" cy="14" r="1"/></svg>
@@ -2643,7 +3014,7 @@ const scheduleUrl = (metadata && metadata.pdf) ? metadata.pdf : (currentRoute ==
                     ${holdNote}
                 </div>
             </div>
-            <div style="background:#f8fafc; padding:12px; border-radius:10px; border:1px solid #e2e8f0; position:relative;">
+            <div style="padding:12px; border-radius:10px; border:1px solid #e2e8f0; position:relative;">
                 <div style="margin-bottom:8px">
                     <div style="font-size:9px; font-weight:800; color:#94a3b8; text-transform:uppercase;">Current Pattern</div>
                     <div style="font-size:12px; color:#1e293b; font-weight:600;">${currentPattern}</div>
@@ -2806,7 +3177,8 @@ routes[r].buses.forEach(b => {
 
                 // Fix: Initialize extraStatus BEFORE using it in the template string
                 let extraStatus = "";
-                if (b.isTimePoint && b.isStopped) extraStatus += `<span class="tc-badge">HOLD</span>`;
+                const isActuallyMoving = b.speed > 2; 
+                if (b.isTimePoint && b.isStopped && !isActuallyMoving) extraStatus += `<span class="tc-badge">HOLD</span>`;
                 if (b.isLR) extraStatus += `<span class="lr-badge">LAST RUN</span>`;
 
 html += `<div class="bus-item ${selectedClass}" ${ghostClass} onclick="${clickHandler}">
@@ -2987,25 +3359,68 @@ async function toggleAllRoutes(stopCode, currentRoute) {
 }
 
 let lastFrameTime = Date.now();
-function initLocation() {
-    if (!navigator.geolocation) return;
 
-    navigator.geolocation.watchPosition(
-        (pos) => {
-            userCoords = [pos.coords.latitude, pos.coords.longitude];
-            if (!userMarker) {
-                userMarker = L.circleMarker(userCoords, {
-                    radius: 8,
-                    className: 'user-location-dot'
-                }).addTo(map);
-            } else {
-                userMarker.setLatLng(userCoords);
-            }
-        },
-        (err) => console.warn("Location access denied."),
-        { enableHighAccuracy: true }
-    );
-}
+// 1. Fixed Icon with Anchor
+const userLocationIcon = L.divIcon({
+    className: 'user-location-container',
+    html: '<div class="user-location-pulse"></div><div class="user-location-dot"></div>',
+    iconSize: [20, 20],   // Size of the container
+    iconAnchor: [10, 10]  // Half of iconSize ensures perfect centering on the coordinate
+});
+
+// 2. Locate Control moved to bottom-right
+const LocateControl = L.Control.extend({
+    options: { position: 'bottomright' },
+    onAdd: function (map) {
+        const container = L.DomUtil.create('div', 'leaflet-control-locate');
+        container.id = "locate-control-btn";
+        container.innerHTML = `
+            <svg id="locate-icon" viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2.5" fill="none">
+                <circle cx="12" cy="12" r="10"></circle>
+                <circle cx="12" cy="12" r="2.5" fill="currentColor"></circle>
+                <line x1="12" y1="2" x2="12" y2="5"></line>
+                <line x1="12" y1="19" x2="12" y2="22"></line>
+                <line x1="2" y1="12" x2="5" y2="12"></line>
+                <line x1="19" y1="12" x2="22" y2="12"></line>
+            </svg>`;
+        
+        container.onclick = function(e) {
+            L.DomEvent.stopPropagation(e);
+            
+            // Visual feedback: Start spinning or dimming
+            container.style.opacity = "0.5";
+            container.classList.add('locating');
+
+            map.locate({
+                setView: true, 
+                maxZoom: 16, 
+                enableHighAccuracy: true, // Key for speed/accuracy balance
+                timeout: 10000 
+            });
+        };
+        return container;
+    }
+});
+
+map.addControl(new LocateControl());
+
+// 3. Handle finding the user
+map.on('locationfound', function(e) {
+    const btn = document.getElementById('locate-control-btn');
+    if(btn) {
+        btn.style.opacity = "1";
+        btn.classList.remove('locating');
+    }
+    if (userMarker) {
+        userMarker.setLatLng(e.latlng);
+    } else {
+        userMarker = L.marker(e.latlng, {icon: userLocationIcon}).addTo(map);
+    }
+});
+
+map.on('locationerror', function(e) {
+    alert("Location access denied.");
+});
 
 function centerOnUser() {
     if (userCoords) {
@@ -3017,7 +3432,6 @@ function centerOnUser() {
 }
 
 // Call this once map is ready
-initLocation();
 
     loadRouteMetadata();
     setInterval(updateSystem, 1000);
@@ -3078,7 +3492,6 @@ const tracker = {
 
 // Start tracking immediately
 tracker.init();
-
 
 </script>
 </body>
