@@ -1,6 +1,16 @@
 <!DOCTYPE html>
 <html>
 <head>
+    <!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-BTRMZH52NR"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-BTRMZH52NR');
+</script>
+
     <title>BTMap</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -1182,7 +1192,7 @@ function getDetailedBusContext(routeId, busId, currentPattern, serviceLevel) {
 let currentSelectedRoute = null; // Track which route's shape is displayed
 let allRoutesMode = {}; // Track per-stop whether to show all routes
 
-    const API = "";
+    const API = "http://127.0.0.1:5000";
     // --- Map Layer Config ---
 const lightTiles = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { 
     attribution: 'Unofficial Resource' 
