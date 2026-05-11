@@ -10,6 +10,101 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import sqlite3
 from datetime import datetime, timedelta
+import threading
+from concurrent.futures import ThreadPoolExecutor
+
+LATEST_TELEMETRY = {}
+TELEMETRY_LOCK = threading.Lock()
+
+def fetch_streets_chunk(chunk_guids):
+    """Surgical burst to StreetsWeb for 3-5 routes."""
+    url = f"{STREETS_BASE}RouteMap/GetVehicles"
+    headers = {"X-Requested-With": "XMLHttpRequest", "RequestVerificationToken": STREETS_TOKEN, "Content-Type": "application/json"}
+    try:
+        # Short timeout: if a batch hangs, don't let it block the others
+        resp = session.post(url, headers=headers, json={"routeKeys": chunk_guids}, timeout=4)
+        return resp.json() if resp.status_code == 200 else []
+    except:
+        return []
+# Create a global to communicate between the Brain and Muscle
+ACTIVE_ROUTE_IDS = set()
+
+def telemetry_worker():
+    """Smart Background Engine: Only requests GUIDs for active routes."""
+    print("🧵 Smart Telemetry Worker Active...")
+    
+    while True:
+        try:
+            # 1. Get the list of GUIDs only for routes currently seen by the Legacy API
+            with TELEMETRY_LOCK:
+                target_routes = list(ACTIVE_ROUTE_IDS)
+            
+            # --- Inside telemetry_worker ---
+            if not target_routes or len(target_routes) < 2:
+                # If legacy is failing or we just started, probe EVERY known GUID
+                target_guids = [guid for sublist in STREETS_GUID_MAP.values() for guid in sublist]
+                # Slow down slightly when probing everything to avoid a timeout
+                batch_timeout = 25
+            else:
+                target_guids = []
+                for rid in target_routes:
+                    if rid in STREETS_GUID_MAP:
+                        target_guids.extend(STREETS_GUID_MAP[rid])
+            if not target_guids:
+                time.sleep(1)
+                continue
+
+            url = f"{STREETS_BASE}RouteMap/GetVehicles"
+            headers = {"X-Requested-With": "XMLHttpRequest", "RequestVerificationToken": STREETS_TOKEN, "Content-Type": "application/json"}
+            
+            # 2. Request only the needed data. Increased timeout to 20s to prevent 'Read timed out'.
+            resp = session.post(url, headers=headers, json={"routeKeys": target_guids}, timeout=20)
+            
+            if resp.status_code == 200:
+                raw_data = resp.json()
+                new_telemetry = {}
+                for route_obj in raw_data:
+                    for direction in route_obj.get('vehiclesByDirections', []):
+                        for bus in direction.get('vehicles', []):
+                            loc = bus.get('location', {})
+                            last_gps_str = loc.get('lastGpsDate', "")
+                            
+                            streets_ts = 0
+                            if last_gps_str:
+                                try:
+                                    dt_obj = datetime.fromisoformat(last_gps_str)
+                                    streets_ts = int(dt_obj.timestamp() * 1000)
+                                except: pass
+
+                            new_telemetry[bus['name']] = {
+                                "lat": loc.get('latitude'),
+                                "lon": loc.get('longitude'),
+                                "heading": loc.get('heading'),
+                                "speed": loc.get('speed', 0),
+                                "pax": bus.get('passengersOnboard', 0),
+                                "cap": bus.get('passengerCapacity', 70),
+                                "ts": streets_ts,
+                                "directionName": direction.get('directionName', 'Loop'),
+                                "routeKey": bus.get('routeKey'),
+                                "isExtra": bus.get('isExtraTrip', False),
+                                "amenities": bus.get('amenities', []) # AC, Bike Racks, etc.
+                            }
+                
+                with TELEMETRY_LOCK:
+                    global LATEST_TELEMETRY
+                    LATEST_TELEMETRY = new_telemetry
+            
+            # High-speed refresh
+            time.sleep(0.7) 
+                
+        except Exception as e:
+            # On error, don't sleep too long, just let the next loop try again
+            print(f"🧵 Worker Lag/Timeout: {e}")
+            time.sleep(0.5)
+
+# Start the worker
+thread = threading.Thread(target=telemetry_worker, daemon=True)
+thread.start()
 
 # Server-side Cache Store
 PATTERN_CACHE = {
@@ -17,6 +112,43 @@ PATTERN_CACHE = {
     "last_updated": 0
 }
 CACHE_TTL = 3600 # Cache results for 1 hour (3600 seconds)
+
+# --- STREETSWEB (MYRIDE) HYBRID CONFIG ---
+STREETS_BASE = "http://216.252.195.248/StreetsWeb/MyRide/"
+# Fresh token from your discovery
+STREETS_TOKEN = "kDgRUwUoLE7dG9end2_3pvoa1ZIfFVH02w6YPbwg6djUqJKj068AHh4SHgBDSmZ_2a2R9YaZyLhItGZJu3UofTt0-MDmNZi0ejTMYrf7zII1:D9u0NsH3u8I9JHiqYQO4bNr6iU7E0RgMB-spM5-UQ30zzMR-ZHzlHKi6ZTcUU-GAJn0XUvjDMp7vcDQHmIIcVBlpSkPLWWflpL92eYLDtN01"
+
+# Exhaustive GUID Map from your Reap
+STREETS_GUID_MAP = {
+    "BLU": ["d21da455-aeb1-476f-b1b6-bca9a0d35ad1"],
+    "BMR": ["26568b26-7bb7-4e6f-af85-8fe4a90dedfc", "56d59483-95c3-4420-b47e-dba4dc54a1f6", "61d13e18-83e6-497e-bebc-f64ebec91a47"],
+    "CAS": ["9f1d8690-9e44-49f1-a641-208c0fafc119", "58551424-0ad9-4f26-915a-c1a22c319e26", "f07d3ec4-8c6b-4cb6-b4fc-e5959c33ebb4"],
+    "CRB": ["5c545da3-7ab6-4c1e-91b1-03aaa4907609", "41518ed8-29a7-4a38-b5f2-0e1503e817f7", "3c29bc76-5485-4e58-8e69-a1094d35eb6f"],
+    "CRC": ["bbf0df3d-4aa0-404b-bd08-4f812481f80b", "83bad4a0-d646-49fa-94c3-d658fc78bdee", "d545f765-aa0e-4807-863f-eefe510465e0"],
+    "GLD": ["77c9d8c3-e3b6-4a1e-962f-adf12580e951"],
+    "GRN": ["a69d2dbe-7f67-498e-abfb-e65f5f4863c1"],
+    "HDG": ["44afa298-8bb7-4352-bd06-1376f226fe0b", "4dfd0193-8282-4b8c-9f20-6c8aff24b97c", "31eea102-ed38-44d8-924b-c0c30cedc043"],
+    "HWA": ["6c494bd3-b52f-447d-ad31-61e8132780a6", "bee621b5-050a-4b9c-a3b0-a4d3a92062a3", "260c1436-addd-4969-8b78-a738a5de663e"],
+    "HWB": ["8e9bc7d7-19cc-45e8-bc10-381659714dd1", "f92ad5bc-c92a-449c-abc8-822e3cf8a69f", "cac44856-eaca-45d0-95fc-9426ed061fcf"],
+    "HWC": ["b2be004d-9ca4-45d7-8b93-29fc227c692f", "c8163d6b-30b1-403b-9c0d-6e0f4b65d6ce", "d46b7d2f-3e72-4dd5-8358-f53fecc23abe"],
+    "HXP": ["e92bac69-332f-480a-9d94-b4b99cfa5cb6", "7247efd4-6c35-4e2c-88f0-d525853690de", "76f61c6c-70ba-447c-8649-fbc1aab6b972"],
+    "NMG": ["37fd4607-6401-4fe4-9ba4-4ef4e3024ebd", "b787a27f-c618-4e14-b905-56903fb56c22", "835937a2-561d-4839-8dae-f7df5dd9cee3"],
+    "NMP": ["fade4e6f-a3e3-4cdc-8287-22c3d7e3ef48", "41cdfb36-22dc-4fe6-9633-8ad5afd4adaa", "cf0220bd-bd82-454c-b94b-d3e319dce6ec"],
+    "PHB": ["5862bcf4-35a1-4c5f-81a4-4ec0f217929f", "e009d54e-561b-476e-a6de-7452c71361d6", "42e46b24-4e3b-49f1-9cb7-d3856ecf9977"],
+    "PHD": ["782f1529-af4e-420e-bf9e-4e996a0442f7", "015be42e-9247-4a0a-abc7-85398a52e3b4", "b0606293-517c-49e9-ad5a-ab8a6b5fdbde"],
+    "PRG": ["74f5d8ed-174e-4a70-bdcd-4a64bb24c08c", "721f5747-7237-4576-adc8-555617335344", "bf4c0c80-3f7c-448c-a351-f5b08f35b2fe"],
+    "SMA": ["b5cdd60f-625e-4c7d-ad7e-2f4807eb0f6a", "47a31552-bd6f-451a-a7cd-bf4d9fca016b", "bd1e8519-4460-42c5-8728-ea31b55d3ba7"],
+    "SME": ["1dc2d35e-e090-4ba1-88a6-0615583705b9", "032aa69c-ed27-44ac-8f1d-e5bcd84804ad", "daca5b59-dc85-4e92-a009-fc64b786a41e"],
+    "SMS": ["6c10282e-35c3-416f-be9f-3dadbeb0237f", "a1ba2da6-1b82-4d52-8a24-9f00e2ea0bfd", "2c29b0c3-4418-49f8-a2f6-e75c3ec94c11"],
+    "TCP": ["ebceefdb-5257-487b-b298-35bab610cba5", "6aa6523c-3cf1-4803-bdbf-973997969f1d", "3d09dd80-ec81-404c-8254-e2810b89759e"],
+    "TCR": ["d312fbc0-b9e0-487d-9645-18246be780b1", "583d0c95-3ccb-4607-889a-86bfcf21ef41", "1722285c-17c9-46ea-bd7e-e4de3d0b6703"],
+    "TTT": ["dee6f3e1-e679-4009-a99f-3d73d80b2d8d", "271e52f8-7ba6-49a2-bce7-879e800117e2", "911a0a6b-11c6-41f6-a637-a70ddc11bd1e"],
+    "UCB": ["d9fe0408-275a-4b65-aa4f-031dee8759d2", "eaf4076f-d880-4f86-9946-6debdf2fce09", "8f20c966-25be-47fe-a140-8a9f9a050351"]
+}
+
+# --- DISASTER RECOVERY MAP ---
+# Reverse-maps every known GUID to its ShortName
+GUID_TO_ROUTE = {guid: r_id for r_id, guids in STREETS_GUID_MAP.items() for guid in guids}
 
 def init_tracker_db():
     conn = sqlite3.connect('usage.db')
@@ -63,6 +195,70 @@ JSON_BASE = "https://ridebt.org/index.php?option=com_ajax&module=bt_map&format=j
 
 # 2. Secondary API (Raw XML) - Used ONLY for Station Board
 XML_BASE = "http://216.252.195.248/webservices/bt4u_webservice.asmx"
+
+# --- STEP 1: OPTIMIZED TELEMETRY ENGINE ---
+
+def fetch_streets_batch(route_keys):
+    """Surgical fetch for a small batch of routes to prevent timeouts."""
+    url = f"{STREETS_BASE}RouteMap/GetVehicles"
+    headers = {
+        "X-Requested-With": "XMLHttpRequest", 
+        "RequestVerificationToken": STREETS_TOKEN, 
+        "Content-Type": "application/json"
+    }
+    try:
+        resp = session.post(url, headers=headers, json={"routeKeys": route_keys}, timeout=5)
+        return resp.json() if resp.status_code == 200 else []
+    except:
+        return []
+
+def fetch_streets_telemetry():
+    """Threaded prober that fetches telemetry in small batches for speed and stability."""
+    # Split GUIDs into batches of 5 to prevent server-side 'Read timed out'
+    all_guids = [guid for sublist in STREETS_GUID_MAP.values() for guid in sublist]
+    batches = [all_guids[i:i + 5] for i in range(0, len(all_guids), 5)]
+    
+    telemetry_dict = {}
+    print(f"🚀 Probing StreetsWeb in {len(batches)} parallel batches...")
+    
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        results = list(executor.map(fetch_streets_batch, batches))
+        
+    for raw_data in results:
+        if not raw_data: continue
+        for route_obj in raw_data:
+            for direction in route_obj.get('vehiclesByDirections', []):
+                # --- Inside telemetry_worker loop ---
+                # --- Inside telemetry_worker loop ---
+                for bus in direction.get('vehicles', []):
+                    loc = bus.get('location', {})
+                    last_gps_str = loc.get('lastGpsDate', "")
+                    
+                    # NEW: Robust timestamp conversion
+                    streets_ts = 0
+                    if last_gps_str:
+                        try:
+                            dt_obj = datetime.fromisoformat(last_gps_str)
+                            streets_ts = int(dt_obj.timestamp() * 1000)
+                        except Exception as e:
+                            print(f"⚠️ Timestamp error for bus {bus['name']}: {e}")
+
+                    telemetry_dict[bus['name']] = {
+                        "lat": loc.get('latitude'),
+                        "lon": loc.get('longitude'),
+                        "heading": loc.get('heading'),
+                        "speed": loc.get('speed', 0),
+                        "pax": bus.get('passengersOnboard', 0),
+                        "cap": bus.get('passengerCapacity', 70),
+                        "ts": streets_ts,
+                                    "directionName": direction.get('directionName', 'Loop'),
+                                    "routeKey": bus.get('routeKey'),
+                                    "isExtra": bus.get('isExtraTrip', False),
+                                    "amenities": bus.get('amenities', []) # AC, Bike Racks, etc.
+                    }
+    
+    print(f"✅ Telemetry Sync Complete: {len(telemetry_dict)} units found.")
+    return telemetry_dict
 
 def fetch_json(method_name, extra_params=None):
     """Fetch from the stable JSON API (ridebt.org)"""
@@ -220,18 +416,71 @@ def get_usage_stats():
 
 @app.route('/buses')
 def get_buses():
-    data, expired = get_cached_data('buses', 2)
+    data, expired = get_cached_data('buses', 1)
     if data and not expired: return jsonify(data)
     
-    new_data = fetch_json("getBuses")
-    if new_data:
-        return jsonify(set_cached_data('buses', new_data))
+    standard_json = fetch_json("getBuses")
+    standard_buses = standard_json.get('data', []) if standard_json else []
     
-    # FALLBACK: If BT is down, serve stale cache
-    if data:
-        print("⚠️ Serving Stale Bus Positions (API Down)")
-        return jsonify(data)
-    return jsonify({"data": []})
+    with TELEMETRY_LOCK:
+        telemetry = LATEST_TELEMETRY.copy()
+        
+    # Detect if Legacy is failing (0 or 1 bus while StreetsWeb sees many)
+    is_legacy_failing = len(standard_buses) < 2 and len(telemetry) > 2
+    final_fleet = []
+
+    if not is_legacy_failing:
+        # --- NORMAL HYBRID MODE: ENRICHED ---
+        current_active_routes = {sb.get('routeId') for sb in standard_buses if sb.get('routeId')}
+        with TELEMETRY_LOCK:
+            global ACTIVE_ROUTE_IDS
+            ACTIVE_ROUTE_IDS = current_active_routes
+
+        for sb in standard_buses:
+            bus_id = sb.get('id')
+            sb['pattern'] = sb.get('patternName', 'Loop')
+            if bus_id in telemetry:
+                tel = telemetry[bus_id]
+                # Inject High-Fi Physics
+                sb['states'][0].update({
+                    'latitude': tel['lat'], 'longitude': tel['lon'],
+                    'direction': int(tel['heading']), 'speed': tel['speed'],
+                    'version': tel['ts']
+                })
+                # Inject NEW MyRide-only features
+                sb.update({
+                    'pax': tel['pax'], 
+                    'capacity': tel['cap'],
+                    'isExtraTrip': tel['isExtra'],
+                    'amenities': tel['amenities']
+                })
+            final_fleet.append(sb)
+    else:
+        # --- DISASTER RECOVERY MODE: AUTONOMOUS ---
+        print("🚨 LEGACY API OFFLINE: Generating fleet from MyRide Telemetry...")
+        for bus_id, tel in telemetry.items():
+            # Identify the route using our reverse GUID map
+            route_id = GUID_TO_ROUTE.get(tel['routeKey'], "UNK")
+            
+            final_fleet.append({
+                "id": bus_id,
+                "routeId": route_id,
+                # During recovery, we use MyRide's direction name
+                "pattern": tel['directionName'], 
+                "pax": tel['pax'],
+                "capacity": tel['cap'],
+                "isExtraTrip": tel['isExtra'],
+                "amenities": tel['amenities'],
+                "states": [{
+                    "latitude": tel['lat'], "longitude": tel['lon'],
+                    "direction": int(tel['heading']), "speed": tel['speed'],
+                    "version": tel['ts'], 
+                    "isBusAtStop": "Y" if tel['speed'] < 0.1 else "N", 
+                    "isTimePoint": "N" # Cannot infer timepoint without Legacy
+                }]
+            })
+
+    return jsonify(set_cached_data('buses', {"data": final_fleet}))
 
 @app.route('/summary')
 def get_fleet_summary():
@@ -359,23 +608,24 @@ def get_shape():
     pattern = request.args.get('pattern')
     cache_key = f"shape_{pattern}"
     
-    # Shapes never really change. Cache for 24 hours.
-    data, expired = get_cached_data(cache_key, 5000)
+    data, expired = get_cached_data(cache_key, 86400)
     if data and not expired: return jsonify(data)
     
     new_data = fetch_json("getPatternPoints", {'patternName': pattern})
     if new_data and 'data' in new_data:
         points = [[float(i['latitude']), float(i['longitude'])] for i in new_data['data']]
+        # Use the Legacy JSON's isTimePoint check which is much more accurate for shapes
         stops = [{
-            "name": i['patternPointName'], "code": i['stopCode'],
-            "lat": float(i['latitude']), "lon": float(i['longitude']),
-            "isTimePoint": i['isTimePoint']
+            "name": i['patternPointName'], 
+            "code": i['stopCode'],
+            "lat": float(i['latitude']), 
+            "lon": float(i['longitude']),
+            "isTimePoint": i['isTimePoint'] # Legacy "Y" or "N"
         } for i in new_data['data'] if i['isBusStop'] == 'Y']
         
-        result = {"shape": points, "stops": stops}
-        return jsonify(set_cached_data(cache_key, result))
+        return jsonify(set_cached_data(cache_key, {"shape": points, "stops": stops}))
     
-    return jsonify(data if data else {"shape": [], "stops": []})
+    return jsonify({"shape": [], "stops": []})
 
 @app.route('/departures')
 def get_departures():
