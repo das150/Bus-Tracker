@@ -185,8 +185,6 @@ def telemetry_worker():
             time.sleep(2.0)
 
 # Start Both Background Workers
-threading.Thread(target=legacy_worker, daemon=True).start()
-threading.Thread(target=telemetry_worker, daemon=True).start()
 
 def init_tracker_db():
     conn = sqlite3.connect('usage.db')
@@ -469,4 +467,6 @@ def get_departures():
 if __name__ == '__main__':
     print("🚀 Proxy V23 (High-Concurrency Edition) Running...")
     # Threaded mode allows Flask to process multiple concurrent user requests instantly
+    threading.Thread(target=legacy_worker, daemon=True).start()
+    threading.Thread(target=telemetry_worker, daemon=True).start()
     app.run(port=5000, threaded=True)
