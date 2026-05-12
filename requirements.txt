@@ -3,3 +3,5 @@ Flask-Cors==4.0.0
 requests==2.31.0
 urllib3==2.2.1
 gunicorn==21.2.0
+orjson
+httpx[http2]
