@@ -9,6 +9,7 @@ from datetime import datetime
 import threading
 import orjson
 import httpx
+import encodings.idna
 
 # Disable SSL warnings for the JSON API
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
