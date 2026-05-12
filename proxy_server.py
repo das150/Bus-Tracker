@@ -1,5 +1,8 @@
 from flask import Flask, request, send_from_directory, Response
 from flask_cors import CORS
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 import xml.etree.ElementTree as ET
 import urllib3
 import time
@@ -8,21 +11,21 @@ import sqlite3
 from datetime import datetime
 import threading
 import orjson
-import httpx
-import encodings.idna  # <-- Add this line here
+
 # Disable SSL warnings for the JSON API
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 app = Flask(__name__)
-CORS(app)
+# Only allow your website and your local testing environment to use this API
+CORS(app, resources={r"/*": {"origins": ["https://btmap.org", "https://www.btmap.org", "http://localhost:5000"]}})
 
 # --- GLOBAL MEMORY STORES (The "Decouplers") ---
-# Locks removed for atomic pointer swaps
 LATEST_TELEMETRY = {}
 LATEST_LEGACY_BUSES = []
 
 KNOWN_ACTIVE_GUIDS = set()
 SWEEP_COUNTER = 0
+
 # Internal 1-second cache for the /buses endpoint
 CACHED_BUS_RESPONSE = None
 CACHED_BUS_TIME = 0
@@ -31,10 +34,11 @@ CACHED_BUS_TIME = 0
 cache = {}
 
 def get_cached_data(key, max_age=15):
+    """Returns (data, is_expired)"""
     if key in cache:
         timestamp, data = cache[key]
-        if (time.time() - timestamp) <= max_age:
-            return data, False
+        is_expired = (time.time() - timestamp) > max_age
+        return data, is_expired
     return None, True
 
 def set_cached_data(key, data):
@@ -52,13 +56,12 @@ def fast_json_response(data):
     return Response(orjson.dumps(data), mimetype='application/json')
 
 # --- NETWORK CONFIGURATION ---
-# httpx client with HTTP/2 enabled and a massive connection pool
-http_client = httpx.Client(
-    http2=True,
-    verify=False,
-    limits=httpx.Limits(max_keepalive_connections=100, max_connections=200),
-    timeout=httpx.Timeout(10.0, connect=5.0)
-)
+# Reverted to rock-solid requests but utilizing heavy connection pooling for speed
+session = requests.Session()
+retries = Retry(total=2, backoff_factor=0.1, status_forcelist=[500, 502, 503, 504])
+adapter = HTTPAdapter(pool_connections=100, pool_maxsize=100, max_retries=retries)
+session.mount('https://', adapter)
+session.mount('http://', adapter)
 
 # --- API CONSTANTS ---
 JSON_BASE = "https://ridebt.org/index.php?option=com_ajax&module=bt_map&format=json"
@@ -109,11 +112,10 @@ def legacy_worker():
     
     while True:
         try:
-            resp = http_client.get(f"{JSON_BASE}&method=getBuses", headers=headers)
+            resp = session.get(f"{JSON_BASE}&method=getBuses", headers=headers, verify=False, timeout=5.0)
             if resp.status_code == 200:
                 data = orjson.loads(resp.content)
                 if data and 'data' in data:
-                    # Atomic pointer swap, no locks needed
                     LATEST_LEGACY_BUSES = data['data']
         except Exception:
             pass
@@ -138,10 +140,11 @@ def telemetry_worker():
 
             url = f"{STREETS_BASE}RouteMap/GetVehicles"
             
-            resp = http_client.post(
+            # Using orjson.dumps for extreme serialization speed
+            resp = session.post(
                 url, 
                 headers=headers,
-                content=orjson.dumps({"routeKeys": target_guids}), 
+                data=orjson.dumps({"routeKeys": target_guids}), 
                 timeout=10.0 if is_wide_sweep else 4.0
             )
             
@@ -175,12 +178,10 @@ def telemetry_worker():
                                 "amenities": bus.get('amenities', [])
                             }
                 
-                # Build the new state entirely in the background
                 current_state = dict(LATEST_TELEMETRY)
                 current_state.update(new_data)
                 now_ms = int(time.time() * 1000)
                 
-                # Filter out old ghost data and perform the atomic pointer swap
                 LATEST_TELEMETRY = {k: v for k, v in current_state.items() if (now_ms - v['ts']) < 180000}
 
                 if is_wide_sweep and found_guids:
@@ -240,12 +241,9 @@ def get_buses():
     global CACHED_BUS_RESPONSE, CACHED_BUS_TIME
     current_time = time.time()
 
-    # 1. THE FAKE CLOUDFLARE SHIELD
-    # If we generated this data less than 1 second ago, serve the raw bytes instantly.
     if CACHED_BUS_RESPONSE and (current_time - CACHED_BUS_TIME) < 1.0:
         return Response(CACHED_BUS_RESPONSE, mimetype='application/json')
 
-    # Grab pointers to the current data instantly (no locks)
     standard_buses = LATEST_LEGACY_BUSES
     telemetry = LATEST_TELEMETRY
         
@@ -302,10 +300,8 @@ def get_buses():
                 }]
             })
 
-    # Compress to raw bytes
     response_bytes = orjson.dumps({"data": final_fleet})
 
-    # 2. UPDATE THE INTERNAL CACHE (Atomic Swap)
     CACHED_BUS_RESPONSE = response_bytes
     CACHED_BUS_TIME = current_time
 
@@ -322,7 +318,7 @@ def fetch_json(method_name, extra_params=None):
         params = {'method': method_name, 'Itemid': '189'}
         if extra_params: params.update(extra_params)
         
-        resp = http_client.get(JSON_BASE, params=params, headers=headers)
+        resp = session.get(JSON_BASE, params=params, headers=headers, verify=False, timeout=5.0)
         return orjson.loads(resp.content) if resp.status_code == 200 else None
     except:
         return None
@@ -332,7 +328,7 @@ def fetch_xml_departures(stop_code):
         url = f"{XML_BASE}/GetNextDeparturesForStop"
         params = {'routeShortName': '', 'noOfTrips': '20', 'stopCode': stop_code}
         
-        resp = http_client.get(url, params=params)
+        resp = session.get(url, params=params, timeout=5.0)
         if resp.status_code != 200: return []
             
         root = ET.fromstring(resp.content)
@@ -363,7 +359,7 @@ def fetch_xml_routes():
         url = f"{XML_BASE}/GetScheduledRoutes"
         params = {'stopCode': '', 'serviceDate': datetime.now().strftime("%Y-%m-%d")}
         
-        resp = http_client.get(url, params=params, timeout=10.0)
+        resp = session.get(url, params=params, timeout=10.0)
         if resp.status_code != 200: return {}
 
         root = ET.fromstring(resp.content)
@@ -429,7 +425,6 @@ def get_nearest():
     lat, lon = request.args.get('lat'), request.args.get('lon')
     data = fetch_json("GetNearestStops", {'latitude': lat, 'longitude': lon})
     return fast_json_response(data['data'] if data and 'data' in data else [])
-
 @app.route('/stops')
 def get_stops():
     route = request.args.get('route')
@@ -449,7 +444,9 @@ def get_stops():
                 "lat": float(item.get('latitude')), "lon": float(item.get('longitude'))
             })
         return fast_json_response(set_cached_data(cache_key, stops))
-    return fast_json_response([])
+    
+    # THE FIX: Serve the stale cache if the API call failed
+    return fast_json_response(cached if cached else [])
 
 @app.route('/route_shape')
 def get_shape():
@@ -469,7 +466,9 @@ def get_shape():
         } for i in new_data['data'] if i['isBusStop'] == 'Y']
         
         return fast_json_response(set_cached_data(cache_key, {"shape": points, "stops": stops}))
-    return fast_json_response({"shape": [], "stops": []})
+    
+    # THE FIX: Serve stale cache on failure
+    return fast_json_response(data if data else {"shape": [], "stops": []})
 
 @app.route('/departures')
 def get_departures():
@@ -480,15 +479,62 @@ def get_departures():
     if data and not expired: return fast_json_response(data)
     
     new_data = fetch_xml_departures(code)
-    if new_data is not None:
+    # THE FIX: This now evaluates to False if the API fails and returns an empty list []
+    if new_data: 
         return fast_json_response(set_cached_data(cache_key, new_data))
+    
+    # Serve stale arrival times if XML API is down
     return fast_json_response(data if data else [])
 
+@app.route('/active_patterns')
+def get_active_patterns():
+    cached_data, is_expired = get_cached_data('active_patterns', 3600)
+    if cached_data and not is_expired:
+        return fast_json_response(cached_data)
+
+    route_ids = ["CAS", "BMR", "PRG", "SME", "HDG", "SMA", "HWA", "HWC", "HWB", 
+                 "BLU", "PHD", "HXP", "PHB", "UCB", "CRB", "CRC", "TCP", "NMG", 
+                 "TCR", "SMS", "TTT", "GRN"]
+    
+    today = datetime.now().strftime("%m/%d/%Y")
+    all_patterns = []
+
+    def fetch_route_patterns(r_id):
+        patterns = []
+        try:
+            url = f"{XML_BASE}/GetPatternNamesForDate"
+            params = {'routeShortName': r_id, 'serviceDate': today}
+            resp = session.get(url, params=params, timeout=5.0)
+            if resp.status_code == 200:
+                root = ET.fromstring(resp.content)
+                for node in root.findall('.//PatternNames'):
+                    p_name = node.findtext('PatternName')
+                    if not p_name: continue
+                    
+                    p_clean = p_name.upper()
+                    if " FR" in p_clean or p_clean.endswith(" FR") or p_clean.endswith("_"):
+                        continue
+                        
+                    patterns.append({"rId": r_id, "pName": p_name})
+        except: pass
+        return patterns
+
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        results = executor.map(fetch_route_patterns, route_ids)
+        for batch in results:
+            all_patterns.extend(batch)
+
+    # THE FIX: Only cache if we successfully got data, otherwise use the fallback
+    if all_patterns:
+        return fast_json_response(set_cached_data('active_patterns', all_patterns))
+    
+    return fast_json_response(cached_data if cached_data else [])
+
 # --- START WORKERS FOR PRODUCTION (GUNICORN) ---
-print("🚀 Proxy V25 (Lock-Free Edge Cache Edition) Workers Initializing...")
+print("🚀 Proxy V26 (Rock-Solid HTTP/1.1 Edition) Workers Initializing...")
 threading.Thread(target=legacy_worker, daemon=True).start()
 threading.Thread(target=telemetry_worker, daemon=True).start()
 
 if __name__ == '__main__':
-    print("🚀 Proxy V25 Running Locally...")
+    print("🚀 Proxy V26 Running Locally...")
     app.run(port=5000, threaded=True)
