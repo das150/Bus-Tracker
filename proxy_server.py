@@ -9,7 +9,6 @@ from datetime import datetime
 import threading
 import orjson
 import httpx
-import encodings.idna
 
 # Disable SSL warnings for the JSON API
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -24,6 +23,9 @@ LATEST_LEGACY_BUSES = []
 
 KNOWN_ACTIVE_GUIDS = set()
 SWEEP_COUNTER = 0
+# Internal 1-second cache for the /buses endpoint
+CACHED_BUS_RESPONSE = None
+CACHED_BUS_TIME = 0
 
 # Simple Cache Storage
 cache = {}
@@ -233,9 +235,16 @@ def heartbeat():
     conn.close()
     return fast_json_response({"status": "pulsed"})
 
-# --- THE HIGH-CONCURRENCY ENDPOINT ---
 @app.route('/buses')
 def get_buses():
+    global CACHED_BUS_RESPONSE, CACHED_BUS_TIME
+    current_time = time.time()
+
+    # 1. THE FAKE CLOUDFLARE SHIELD
+    # If we generated this data less than 1 second ago, serve the raw bytes instantly.
+    if CACHED_BUS_RESPONSE and (current_time - CACHED_BUS_TIME) < 1.0:
+        return Response(CACHED_BUS_RESPONSE, mimetype='application/json')
+
     # Grab pointers to the current data instantly (no locks)
     standard_buses = LATEST_LEGACY_BUSES
     telemetry = LATEST_TELEMETRY
@@ -245,7 +254,6 @@ def get_buses():
 
     if not is_legacy_failing:
         for original_sb in standard_buses:
-            # Create a shallow copy so we don't mutate the global list during concurrent requests
             sb = dict(original_sb)
             bus_id = sb.get('id')
             sb['pattern'] = sb.get('patternName', 'Loop')
@@ -253,7 +261,6 @@ def get_buses():
             if bus_id in telemetry:
                 tel = telemetry[bus_id]
                 
-                # Copy the state dictionary before modifying it
                 if 'states' in sb and sb['states']:
                     sb['states'] = [dict(sb['states'][0])]
                     legacy_state = sb['states'][0]
@@ -295,10 +302,14 @@ def get_buses():
                 }]
             })
 
-    # Compress to raw bytes and apply the 1-second Cloudflare Edge Cache header
-    response = fast_json_response({"data": final_fleet})
-    response.headers['Cache-Control'] = 'public, max-age=1'
-    return response
+    # Compress to raw bytes
+    response_bytes = orjson.dumps({"data": final_fleet})
+
+    # 2. UPDATE THE INTERNAL CACHE (Atomic Swap)
+    CACHED_BUS_RESPONSE = response_bytes
+    CACHED_BUS_TIME = current_time
+
+    return Response(response_bytes, mimetype='application/json')
 
 # --- HELPER FUNCTIONS FOR OTHER ENDPOINTS ---
 def fetch_json(method_name, extra_params=None):
